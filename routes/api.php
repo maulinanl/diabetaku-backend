@@ -40,6 +40,7 @@ Route::prefix('doctor')->group(function () {
     Route::get('/patients/{patientId}/glucose', [DoctorPatientController::class, 'glucose']);
     Route::get('/patients/{patientId}/physiological', [DoctorPatientController::class, 'physiological']);
     Route::get('/patients/{patientId}/behavioral', [DoctorPatientController::class, 'behavioral']);
+    Route::get('/patients/{patientId}/medication', [DoctorPatientController::class, 'medication']);
 
     Route::get('/patients/{patientId}/thresholds', [DoctorPatientController::class, 'thresholds']);
     Route::put('/patients/{patientId}/thresholds/{parameterId}', [DoctorPatientController::class, 'updateThreshold']);

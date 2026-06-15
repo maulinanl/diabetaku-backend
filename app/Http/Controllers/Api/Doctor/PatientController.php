@@ -191,4 +191,26 @@ class PatientController extends Controller
             'message' => 'Relasi dokter dan pasien berhasil diputus'
         ]);
     }
+    public function medication($patientId)
+    {
+        $data = DB::table('medication_consumption_logs as mcl')
+            ->leftJoin('prescriptions as p', 'mcl.prescription_id', '=', 'p.prescription_id')
+            ->leftJoin('prescription_schedules as ps', 'mcl.schedule_id', '=', 'ps.schedule_id')
+            ->where('mcl.patient_id', $patientId)
+            ->select(
+                'mcl.*',
+                'p.drug_name',
+                'p.dosage',
+                'p.form',
+                'ps.session',
+                'ps.dose_per_session'
+            )
+            ->orderByDesc('mcl.log_date')
+            ->get();
+
+        return response()->json([
+            'message' => 'Data konsumsi obat berhasil diambil',
+            'data' => $data
+        ]);
+    }
 }
