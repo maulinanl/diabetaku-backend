@@ -21,6 +21,7 @@ class PatientController extends Controller
                 'u.email',
                 'u.phone_number',
                 'u.gender',
+                'u.date_of_birth',
                 'p.diabetes_type',
                 'dpr.connected_at'
             )
@@ -211,6 +212,30 @@ class PatientController extends Controller
         return response()->json([
             'message' => 'Data konsumsi obat berhasil diambil',
             'data' => $data
+        ]);
+    }
+
+    public function families($patientId)
+    {
+        $families = DB::table('family_patient_relations as fpr')
+            ->join('families as f', 'fpr.family_id', '=', 'f.family_id')
+            ->join('users as u', 'f.user_id', '=', 'u.user_id')
+            ->leftJoin('relation_types as rt', 'fpr.relation_type_id', '=', 'rt.relation_type_id')
+            ->where('fpr.patient_id', $patientId)
+            ->where('fpr.status', 'Diterima')
+            ->select(
+                'f.family_id',
+                'u.user_id',
+                'u.full_name',
+                'u.email',
+                'rt.relation_name'
+            )
+            ->orderBy('u.full_name')
+            ->get();
+
+        return response()->json([
+            'message' => 'Daftar keluarga pasien berhasil diambil',
+            'data' => $families
         ]);
     }
 }

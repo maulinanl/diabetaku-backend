@@ -57,6 +57,8 @@ Route::prefix('doctor')->group(function () {
 
     Route::post('/clinical-notes/{clinicalNoteId}/recommendation', [DoctorRecommendationController::class, 'store']);
     Route::get('/clinical-notes/{clinicalNoteId}/recommendation', [DoctorRecommendationController::class, 'show']);
+
+    Route::get('/patients/{patientId}/families', [DoctorPatientController::class, 'families']);
 });
 
 Route::prefix('patient')->group(function () {

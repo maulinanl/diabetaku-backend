@@ -13,7 +13,7 @@ class RecommendationController extends Controller
         $request->validate([
             'category' => 'required|in:Obat,Pola Makan,Aktivitas Fisik,Gaya Hidup,Lainnya',
             'recommendation_text' => 'required|string',
-            'recipient_user_ids' => 'required|array',
+            'recipient_user_ids' => 'required|array|min:1',
             'recipient_user_ids.*' => 'exists:users,user_id',
         ]);
 
@@ -27,67 +27,74 @@ class RecommendationController extends Controller
             ], 404);
         }
 
-        DB::transaction(function () use ($request, $clinicalNoteId) {
-            DB::table('recommendations')->updateOrInsert(
-                ['clinical_note_id' => $clinicalNoteId],
+        $recommendationId = DB::transaction(function () use ($request, $clinicalNoteId) {
+            $recommendationId = DB::table('recommendations')->insertGetId(
                 [
+                    'clinical_note_id' => $clinicalNoteId,
                     'category' => $request->category,
                     'recommendation_text' => $request->recommendation_text,
                     'created_at' => now(),
                     'updated_at' => now(),
-                ]
+                ],
+                'recommendation_id'
             );
-
-            DB::table('recommendation_recipients')
-                ->where('clinical_note_id', $clinicalNoteId)
-                ->delete();
 
             foreach ($request->recipient_user_ids as $userId) {
                 DB::table('recommendation_recipients')->insert([
-                    'clinical_note_id' => $clinicalNoteId,
+                    'recommendation_id' => $recommendationId,
                     'user_id' => $userId,
                     'is_read' => false,
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
             }
+
+            return $recommendationId;
         });
 
         return response()->json([
-            'message' => 'Rekomendasi berhasil disimpan dan dikirim'
+            'message' => 'Rekomendasi berhasil disimpan dan dikirim',
+            'data' => [
+                'recommendation_id' => $recommendationId
+            ]
         ], 201);
     }
 
     public function show($clinicalNoteId)
     {
-        $recommendation = DB::table('recommendations')
+        $recommendations = DB::table('recommendations')
             ->where('clinical_note_id', $clinicalNoteId)
-            ->first();
+            ->orderByDesc('created_at')
+            ->get();
 
-        if (!$recommendation) {
+        if ($recommendations->isEmpty()) {
             return response()->json([
                 'message' => 'Rekomendasi tidak ditemukan'
             ], 404);
         }
 
-        $recipients = DB::table('recommendation_recipients as rr')
-            ->join('users as u', 'rr.user_id', '=', 'u.user_id')
-            ->where('rr.clinical_note_id', $clinicalNoteId)
-            ->select(
-                'rr.user_id',
-                'u.full_name',
-                'u.email',
-                'rr.is_read',
-                'rr.read_at'
-            )
-            ->get();
+        $data = $recommendations->map(function ($recommendation) {
+            $recipients = DB::table('recommendation_recipients as rr')
+                ->join('users as u', 'rr.user_id', '=', 'u.user_id')
+                ->where('rr.recommendation_id', $recommendation->recommendation_id)
+                ->select(
+                    'rr.user_id',
+                    'u.full_name',
+                    'u.email',
+                    'rr.is_read',
+                    'rr.read_at'
+                )
+                ->get();
+
+            return [
+                'recommendation' => $recommendation,
+                'recipients' => $recipients,
+            ];
+        });
 
         return response()->json([
             'message' => 'Detail rekomendasi berhasil diambil',
-            'data' => [
-                'recommendation' => $recommendation,
-                'recipients' => $recipients
-            ]
+            'data' => $data
         ]);
     }
 }

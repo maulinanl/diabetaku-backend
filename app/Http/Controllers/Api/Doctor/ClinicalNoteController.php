@@ -31,7 +31,9 @@ class ClinicalNoteController extends Controller
 
         return response()->json([
             'message' => 'Catatan klinis berhasil disimpan',
-            'clinical_note_id' => $id
+            'data' => [
+                'clinical_note_id' => $id
+            ]
         ], 201);
     }
 
