@@ -14,7 +14,7 @@ class PatientController extends Controller
             ->join('patients as p', 'dpr.patient_id', '=', 'p.patient_id')
             ->join('users as u', 'p.user_id', '=', 'u.user_id')
             ->where('dpr.doctor_id', $doctorId)
-            ->where('dpr.status', 'Diterima')
+            ->whereIn('dpr.status', ['Diterima', 'Diputus'])
             ->select(
                 'p.patient_id',
                 'u.full_name',
@@ -23,7 +23,9 @@ class PatientController extends Controller
                 'u.gender',
                 'u.date_of_birth',
                 'p.diabetes_type',
-                'dpr.connected_at'
+                'dpr.status as relation_status',
+                'dpr.connected_at',
+                'dpr.updated_at'
             )
             ->orderBy('u.full_name')
             ->get();
@@ -236,6 +238,96 @@ class PatientController extends Controller
         return response()->json([
             'message' => 'Daftar keluarga pasien berhasil diambil',
             'data' => $families
+        ]);
+    }
+
+    public function connectionRequests($doctorId)
+    {
+        $requests = DB::table('doctor_patient_relations as dpr')
+            ->join('patients as p', 'dpr.patient_id', '=', 'p.patient_id')
+            ->join('users as u', 'p.user_id', '=', 'u.user_id')
+            ->where('dpr.doctor_id', $doctorId)
+            ->where('dpr.status', 'Menunggu')
+            ->select(
+                'p.patient_id',
+                'u.full_name',
+                'u.gender',
+                'u.date_of_birth',
+                'p.diabetes_type',
+                'dpr.requested_at'
+            )
+            ->orderByDesc('dpr.requested_at')
+            ->get();
+
+        return response()->json([
+            'message' => 'Daftar permintaan koneksi berhasil diambil',
+            'data' => $requests
+        ]);
+    }
+
+    public function acceptConnection(Request $request, $patientId)
+    {
+        $request->validate([
+            'doctor_id' => 'required|exists:doctors,doctor_id',
+        ]);
+
+        DB::table('doctor_patient_relations')
+            ->where('doctor_id', $request->doctor_id)
+            ->where('patient_id', $patientId)
+            ->update([
+                'status' => 'Diterima',
+                'responded_at' => now(),
+                'connected_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+        return response()->json([
+            'message' => 'Permintaan koneksi berhasil diterima'
+        ]);
+    }
+
+    public function rejectConnection(Request $request, $patientId)
+    {
+        $request->validate([
+            'doctor_id' => 'required|exists:doctors,doctor_id',
+        ]);
+
+        DB::table('doctor_patient_relations')
+            ->where('doctor_id', $request->doctor_id)
+            ->where('patient_id', $patientId)
+            ->update([
+                'status' => 'Ditolak',
+                'responded_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+        return response()->json([
+            'message' => 'Permintaan koneksi berhasil ditolak'
+        ]);
+    }
+
+    public function rejectedConnectionRequests($doctorId)
+    {
+        $requests = DB::table('doctor_patient_relations as dpr')
+            ->join('patients as p', 'dpr.patient_id', '=', 'p.patient_id')
+            ->join('users as u', 'p.user_id', '=', 'u.user_id')
+            ->where('dpr.doctor_id', $doctorId)
+            ->where('dpr.status', 'Ditolak')
+            ->select(
+                'p.patient_id',
+                'u.full_name',
+                'u.gender',
+                'u.date_of_birth',
+                'p.diabetes_type',
+                'dpr.requested_at',
+                'dpr.responded_at'
+            )
+            ->orderByDesc('dpr.responded_at')
+            ->get();
+
+        return response()->json([
+            'message' => 'Daftar koneksi ditolak berhasil diambil',
+            'data' => $requests
         ]);
     }
 }

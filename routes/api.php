@@ -59,6 +59,12 @@ Route::prefix('doctor')->group(function () {
     Route::get('/clinical-notes/{clinicalNoteId}/recommendation', [DoctorRecommendationController::class, 'show']);
 
     Route::get('/patients/{patientId}/families', [DoctorPatientController::class, 'families']);
+
+    Route::get('/connection-requests/{doctorId}', [DoctorPatientController::class, 'connectionRequests']);
+
+    Route::post('/connection-requests/{patientId}/accept', [DoctorPatientController::class, 'acceptConnection']);
+    Route::post('/connection-requests/{patientId}/reject', [DoctorPatientController::class, 'rejectConnection']);
+    Route::get('/connection-requests/{doctorId}/rejected', [DoctorPatientController::class, 'rejectedConnectionRequests']);
 });
 
 Route::prefix('patient')->group(function () {
