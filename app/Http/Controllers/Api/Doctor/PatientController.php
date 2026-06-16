@@ -330,4 +330,54 @@ class PatientController extends Controller
             'data' => $requests
         ]);
     }
+
+    public function connectionStatus(Request $request, $patientId)
+    {
+        $doctorId = $request->query('doctor_id');
+
+        $connection = DB::table('doctor_patient_relations as dpr')
+            ->join('patients as p', 'dpr.patient_id', '=', 'p.patient_id')
+            ->join('users as u', 'p.user_id', '=', 'u.user_id')
+            ->where('dpr.patient_id', $patientId)
+            ->where('dpr.doctor_id', $doctorId)
+            ->select(
+                'p.patient_id',
+                'u.full_name',
+                'u.gender',
+                'u.date_of_birth',
+                'p.diabetes_type',
+                'dpr.status'
+            )
+            ->first();
+
+        if (!$connection) {
+            return response()->json([
+                'message' => 'Data koneksi tidak ditemukan',
+                'data' => [
+                    'patient_id' => $patientId,
+                    'status_id' => 0,
+                    'connection_status' => 'Menunggu persetujuan dokter'
+                ]
+            ]);
+        }
+
+        $statusId = match ($connection->status) {
+            'Diterima', 'Aktif', 'accepted', 'active' => 1,
+            'Ditolak', 'rejected' => 2,
+            default => 0,
+        };
+
+        return response()->json([
+            'message' => 'Status koneksi berhasil diambil',
+            'data' => [
+                'patient_id' => $connection->patient_id,
+                'full_name' => $connection->full_name,
+                'gender' => $connection->gender,
+                'date_of_birth' => $connection->date_of_birth,
+                'diabetes_type' => $connection->diabetes_type,
+                'status_id' => $statusId,
+                'status' => $connection->status,
+            ]
+        ]);
+    }
 }

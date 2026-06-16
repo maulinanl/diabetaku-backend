@@ -65,6 +65,7 @@ Route::prefix('doctor')->group(function () {
     Route::post('/connection-requests/{patientId}/accept', [DoctorPatientController::class, 'acceptConnection']);
     Route::post('/connection-requests/{patientId}/reject', [DoctorPatientController::class, 'rejectConnection']);
     Route::get('/connection-requests/{doctorId}/rejected', [DoctorPatientController::class, 'rejectedConnectionRequests']);
+    Route::get('/connections/status/{patientId}', [DoctorPatientController::class, 'connectionStatus']);
 });
 
 Route::prefix('patient')->group(function () {
