@@ -179,11 +179,36 @@ class AuthController extends Controller
 
         $token = $user->createToken('diabetaku-token')->plainTextToken;
 
+        $doctor = null;
+        $patient = null;
+        $family = null;
+
+        if ($user->role_id == 2) {
+            $doctor = DB::table('doctors')
+                ->where('user_id', $user->user_id)
+                ->first();
+        }
+
+        if ($user->role_id == 3) {
+            $patient = DB::table('patients')
+                ->where('user_id', $user->user_id)
+                ->first();
+        }
+
+        if ($user->role_id == 4) {
+            $family = DB::table('families')
+                ->where('user_id', $user->user_id)
+                ->first();
+        }
+
         return response()->json([
             'message' => 'Login berhasil',
             'token' => $token,
             'token_type' => 'Bearer',
-            'user' => $user
+            'user' => $user,
+            'doctor' => $doctor,
+            'patient' => $patient,
+            'family' => $family,
         ]);
     }
 

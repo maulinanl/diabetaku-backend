@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Doctor\PatientController as DoctorPatientController
 use App\Http\Controllers\Api\Doctor\ProfileController as DoctorProfileController;
 use App\Http\Controllers\Api\Doctor\ClinicalNoteController as DoctorClinicalNoteController;
 use App\Http\Controllers\Api\Doctor\RecommendationController as DoctorRecommendationController;
+use App\Http\Controllers\Api\Doctor\HistoryController as DoctorHistoryController;
 use App\Http\Controllers\Api\Patient\ProfileController as PatientProfileController;
 use App\Http\Controllers\Api\Patient\HealthController as PatientHealthController;
 use App\Http\Controllers\Api\Patient\ConnectionController as PatientConnectionController;
@@ -66,6 +67,8 @@ Route::prefix('doctor')->group(function () {
     Route::post('/connection-requests/{patientId}/reject', [DoctorPatientController::class, 'rejectConnection']);
     Route::get('/connection-requests/{doctorId}/rejected', [DoctorPatientController::class, 'rejectedConnectionRequests']);
     Route::get('/connections/status/{patientId}', [DoctorPatientController::class, 'connectionStatus']);
+
+    Route::get('/history/{doctorId}', [DoctorHistoryController::class, 'index']);
 });
 
 Route::prefix('patient')->group(function () {
