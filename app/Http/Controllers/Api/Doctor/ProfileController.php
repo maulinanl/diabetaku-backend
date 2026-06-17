@@ -50,7 +50,6 @@ class ProfileController extends Controller
             'date_of_birth' => 'nullable|date',
             'gender' => 'required|in:Laki-laki,Perempuan',
             'specialization_id' => 'required|exists:specializations,specialization_id',
-            'str_number' => 'required|string|max:50',
             'institution' => 'nullable|string|max:200',
         ]);
 
@@ -79,7 +78,6 @@ class ProfileController extends Controller
                 ->where('doctor_id', $doctorId)
                 ->update([
                     'specialization_id' => $request->specialization_id,
-                    'str_number' => $request->str_number,
                     'institution' => $request->institution,
                     'updated_at' => now(),
                 ]);

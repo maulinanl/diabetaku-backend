@@ -22,6 +22,7 @@ Route::prefix('auth')->group(function () {
     Route::post('/register/patient', [AuthController::class, 'registerPatient']);
     Route::post('/register/family', [AuthController::class, 'registerFamily']);
     Route::post('/login', [AuthController::class, 'login']);
+    Route::middleware('auth:sanctum')->put('/change-password', [AuthController::class, 'changePassword']);
     Route::middleware('auth:sanctum')->post('/logout', [AuthController::class, 'logout']);
 });
 

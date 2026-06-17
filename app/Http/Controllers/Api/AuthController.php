@@ -220,4 +220,36 @@ class AuthController extends Controller
             'message' => 'Logout berhasil'
         ]);
     }
+
+    public function changePassword(Request $request)
+    {
+        $request->validate([
+            'current_password' => 'required',
+            'new_password' => 'required|min:8|confirmed',
+        ]);
+
+        $user = $request->user();
+
+        if (!Hash::check(
+            $request->current_password,
+            $user->password_hash
+        )) {
+            return response()->json([
+                'message' => 'Kata sandi lama tidak sesuai'
+            ], 422);
+        }
+
+        DB::table('users')
+            ->where('user_id', $user->user_id)
+            ->update([
+                'password_hash' => Hash::make(
+                    $request->new_password
+                ),
+                'updated_at' => now(),
+            ]);
+
+        return response()->json([
+            'message' => 'Kata sandi berhasil diperbarui'
+        ]);
+    }
 }
