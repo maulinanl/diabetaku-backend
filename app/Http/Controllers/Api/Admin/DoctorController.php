@@ -20,9 +20,10 @@ class DoctorController extends Controller
                 'u.full_name',
                 'u.email',
                 'u.phone_number',
+                'u.email_verified_at',
+                's.specialization_name',
                 'd.str_number',
                 'd.institution',
-                's.specialization_name',
                 'd.verification_status',
                 'd.created_at'
             )
@@ -31,7 +32,7 @@ class DoctorController extends Controller
 
         return response()->json([
             'message' => 'Data dokter menunggu verifikasi berhasil diambil',
-            'data' => $data
+            'data' => $data,
         ]);
     }
 
@@ -47,7 +48,7 @@ class DoctorController extends Controller
 
         if (!$doctor) {
             return response()->json([
-                'message' => 'Data dokter tidak ditemukan'
+                'message' => 'Data dokter tidak ditemukan',
             ], 404);
         }
 
@@ -71,7 +72,7 @@ class DoctorController extends Controller
         });
 
         return response()->json([
-            'message' => 'Dokter berhasil diverifikasi'
+            'message' => 'Dokter berhasil diverifikasi',
         ]);
     }
 
@@ -79,7 +80,7 @@ class DoctorController extends Controller
     {
         $request->validate([
             'admin_id' => 'required|exists:admins,admin_id',
-            'rejection_reason' => 'required|string',
+            'rejection_reason' => 'required|string|max:255',
         ]);
 
         $doctor = DB::table('doctors')
@@ -88,7 +89,7 @@ class DoctorController extends Controller
 
         if (!$doctor) {
             return response()->json([
-                'message' => 'Data dokter tidak ditemukan'
+                'message' => 'Data dokter tidak ditemukan',
             ], 404);
         }
 
@@ -112,7 +113,7 @@ class DoctorController extends Controller
         });
 
         return response()->json([
-            'message' => 'Registrasi dokter berhasil ditolak'
+            'message' => 'Registrasi dokter berhasil ditolak',
         ]);
     }
 }

@@ -16,12 +16,24 @@ use App\Http\Controllers\Api\Family\PatientController as FamilyPatientController
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\Admin\DoctorController as AdminDoctorController;
 use App\Http\Controllers\Api\Admin\UserController as AdminUserController;
+use App\Http\Controllers\Api\VerifyEmailController;
 
 Route::prefix('auth')->group(function () {
     Route::post('/register/doctor', [AuthController::class, 'registerDoctor']);
     Route::post('/register/patient', [AuthController::class, 'registerPatient']);
     Route::post('/register/family', [AuthController::class, 'registerFamily']);
     Route::post('/login', [AuthController::class, 'login']);
+
+    Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+    Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+
+    Route::get('/email/verify/{id}/{hash}', VerifyEmailController::class)
+        ->middleware('signed')
+        ->name('verification.verify');
+
+    Route::post('/email/resend', [AuthController::class, 'resendVerificationEmail']);
+    Route::post('/email/check', [AuthController::class, 'checkEmailVerification']);
+
     Route::middleware('auth:sanctum')->put('/change-password', [AuthController::class, 'changePassword']);
     Route::middleware('auth:sanctum')->post('/logout', [AuthController::class, 'logout']);
 });
