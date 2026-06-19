@@ -13,7 +13,7 @@ class HealthController extends Controller
         $request->validate([
             'patient_id' => 'required|exists:patients,patient_id',
             'input_by_user_id' => 'required|exists:users,user_id',
-            'measurement_type' => 'required|in:Puasa,Dua Jam Setelah Makan,Sewaktu',
+            'measurement_type' => 'required|in:Puasa,Postprandial,Sewaktu,HbA1c',
             'glucose_value' => 'required|numeric',
             'measured_at' => 'required|date',
         ]);
@@ -101,8 +101,9 @@ class HealthController extends Controller
             'patient_id' => 'required|exists:patients,patient_id',
             'input_by_user_id' => 'required|exists:users,user_id',
             'meal_type_id' => 'required|exists:meal_types,meal_type_id',
-            'food_description' => 'required|string',
+            'food_description' => 'nullable|string',
             'carbohydrate_estimate' => 'nullable|numeric',
+            'calories' => 'nullable|numeric',
             'meal_date' => 'required|date',
         ]);
 
@@ -112,6 +113,7 @@ class HealthController extends Controller
             'meal_type_id' => $request->meal_type_id,
             'food_description' => $request->food_description,
             'carbohydrate_estimate' => $request->carbohydrate_estimate,
+            'calories' => $request->calories,
             'validation_status' => 'Valid',
             'meal_date' => $request->meal_date,
             'created_at' => now(),
@@ -133,28 +135,84 @@ class HealthController extends Controller
             'schedule_id' => 'required|exists:prescription_schedules,schedule_id',
             'log_date' => 'required|date',
             'status' => 'required|in:Diminum,Terlewat,Dibatalkan',
-            'note' => 'nullable|string',
+            'note' => 'nullable|string|max:500',
         ]);
 
-        $id = DB::table('medication_consumption_logs')->insertGetId([
-            'prescription_id' => $request->prescription_id,
-            'patient_id' => $request->patient_id,
-            'input_by_user_id' => $request->input_by_user_id,
-            'schedule_id' => $request->schedule_id,
-            'log_date' => $request->log_date,
-            'status' => $request->status,
-            'checked_at' => $request->status === 'Diminum' ? now() : null,
-            'cancelled_at' => $request->status === 'Dibatalkan' ? now() : null,
-            'note' => $request->note,
-            'validation_status' => 'Valid',
-            'created_at' => now(),
-            'updated_at' => now(),
-        ], 'log_id');
+        $prescription = DB::table('prescriptions')
+            ->where('prescription_id', $request->prescription_id)
+            ->where('patient_id', $request->patient_id)
+            ->where('status', 'Aktif')
+            ->first();
 
-        return response()->json([
-            'message' => 'Log konsumsi obat berhasil ditambahkan',
-            'log_id' => $id
-        ], 201);
+        if (!$prescription) {
+            return response()->json([
+                'message' => 'Resep tidak ditemukan atau tidak aktif'
+            ], 404);
+        }
+
+        $schedule = DB::table('prescription_schedules')
+            ->where('schedule_id', $request->schedule_id)
+            ->where('prescription_id', $request->prescription_id)
+            ->first();
+
+        if (!$schedule) {
+            return response()->json([
+                'message' => 'Jadwal tidak sesuai dengan resep'
+            ], 422);
+        }
+
+        $exists = DB::table('medication_consumption_logs')
+            ->where('patient_id', $request->patient_id)
+            ->where('schedule_id', $request->schedule_id)
+            ->whereDate('log_date', $request->log_date)
+            ->exists();
+
+        if ($exists) {
+            return response()->json([
+                'message' => 'Obat pada jadwal ini sudah dicatat hari ini'
+            ], 422);
+        }
+
+        DB::beginTransaction();
+
+        try {
+
+            $id = DB::table('medication_consumption_logs')
+                ->insertGetId([
+                    'prescription_id' => $request->prescription_id,
+                    'patient_id' => $request->patient_id,
+                    'input_by_user_id' => $request->input_by_user_id,
+                    'schedule_id' => $request->schedule_id,
+                    'log_date' => $request->log_date,
+                    'status' => $request->status,
+                    'checked_at' => $request->status === 'Diminum'
+                        ? now()
+                        : null,
+                    'cancelled_at' => $request->status === 'Dibatalkan'
+                        ? now()
+                        : null,
+                    'note' => $request->note,
+                    'validation_status' => 'Valid',
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ], 'log_id');
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Log konsumsi obat berhasil ditambahkan',
+                'log_id' => $id
+            ], 201);
+
+        } catch (\Exception $e) {
+
+            DB::rollBack();
+
+            return response()->json([
+                'message' => 'Gagal menyimpan log konsumsi obat',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     public function history($patientId)
@@ -166,8 +224,227 @@ class HealthController extends Controller
                 'physiological' => DB::table('physiological_records')->where('patient_id', $patientId)->orderByDesc('measured_at')->get(),
                 'activity' => DB::table('activity_records')->where('patient_id', $patientId)->orderByDesc('activity_date')->get(),
                 'meal' => DB::table('meal_records')->where('patient_id', $patientId)->orderByDesc('meal_date')->get(),
-                'medication' => DB::table('medication_consumption_logs')->where('patient_id', $patientId)->orderByDesc('log_date')->get(),
-            ]
+                'medication' => DB::table('medication_consumption_logs as l')
+                    ->join(
+                        'prescriptions as p',
+                        'l.prescription_id',
+                        '=',
+                        'p.prescription_id'
+                    )
+                    ->join(
+                        'medications as m',
+                        'p.medication_id',
+                        '=',
+                        'm.medication_id'
+                    )
+                    ->join(
+                        'prescription_schedules as ps',
+                        'l.schedule_id',
+                        '=',
+                        'ps.schedule_id'
+                    )
+                    ->select(
+                        'l.*',
+                        'm.medication_name',
+                        'ps.session',
+                        'ps.dose_per_session'
+                    )
+                    ->where('l.patient_id', $patientId)
+                    ->orderByDesc('l.log_date')
+                    ->get(),
+                            ]
+                        ]);
+                    }
+
+    public function recommendations($patientId)
+    {
+        $data = DB::table('recommendations as r')
+            ->join('clinical_notes as cn', 'r.clinical_note_id', '=', 'cn.clinical_note_id')
+            ->join('doctors as d', 'cn.doctor_id', '=', 'd.doctor_id')
+            ->join('users as u', 'd.user_id', '=', 'u.user_id')
+            ->where('cn.patient_id', $patientId)
+            ->select(
+                'r.recommendation_id',
+                'r.clinical_note_id',
+                'cn.patient_id',
+                'cn.doctor_id',
+                'u.full_name as doctor_name',
+                'r.category',
+                'r.recommendation_text',
+                'r.created_at'
+            )
+            ->orderByDesc('r.created_at')
+            ->get();
+
+        return response()->json([
+            'message' => 'Riwayat rekomendasi berhasil diambil',
+            'data' => $data
         ]);
     }
+
+    public function activePrescriptions($patientId)
+    {
+        $data = DB::table('prescriptions as p')
+            ->join('medications as m', 'p.medication_id', '=', 'm.medication_id')
+            ->join('prescription_schedules as ps', 'p.prescription_id', '=', 'ps.prescription_id')
+            ->where('p.patient_id', $patientId)
+            ->where('p.status', 'Aktif')
+            ->whereDate('p.valid_from', '<=', now())
+            ->whereDate('p.valid_until', '>=', now())
+            ->select(
+                'p.prescription_id',
+                'ps.schedule_id',
+                'm.medication_name',
+                'm.description',
+                'p.dosage',
+                'p.form',
+                'p.meal_rule',
+                'p.notes',
+                'ps.session',
+                'ps.dose_per_session'
+            )
+            ->orderBy('ps.session')
+            ->get();
+
+        return response()->json([
+            'message' => 'Resep aktif berhasil diambil',
+            'data' => $data
+        ]);
+    }
+
+    public function latestRecommendation($patientId)
+    {
+        $data = DB::table('recommendations as r')
+            ->join('doctors as d', 'r.doctor_id', '=', 'd.doctor_id')
+            ->join('users as u', 'd.user_id', '=', 'u.user_id')
+            ->where('r.patient_id', $patientId)
+            ->select(
+                'r.recommendation_id',
+                'u.full_name as doctor_name',
+                'r.category',
+                'r.content',
+                'r.created_at'
+            )
+            ->orderByDesc('r.created_at')
+            ->first();
+
+        return response()->json([
+            'message' => 'Rekomendasi terbaru berhasil diambil',
+            'data' => $data
+        ]);
+    }
+
+    public function pendingValidations($patientId)
+    {
+        $glucose = DB::table('glucose_records as gr')
+            ->join('users as u', 'gr.input_by_user_id', '=', 'u.user_id')
+            ->where('gr.patient_id', $patientId)
+            ->where('gr.validation_status', 'Menunggu')
+            ->select(
+                DB::raw("'glucose' as record_type"),
+                'gr.glucose_id as record_id',
+                DB::raw("CONCAT('Glukosa ', gr.measurement_type) as title"),
+                'gr.measured_at as date',
+                DB::raw("CAST(gr.glucose_value as TEXT) as value"),
+                DB::raw("'mg/dL' as unit"),
+                'u.full_name as input_by',
+                DB::raw("'Keluarga' as relation")
+            );
+
+        $physiological = DB::table('physiological_records as pr')
+            ->join('users as u', 'pr.input_by_user_id', '=', 'u.user_id')
+            ->where('pr.patient_id', $patientId)
+            ->where('pr.validation_status', 'Menunggu')
+            ->select(
+                DB::raw("'physiological' as record_type"),
+                'pr.physiological_id as record_id',
+                DB::raw("'Tekanan Darah' as title"),
+                'pr.measured_at as date',
+                DB::raw("CONCAT(COALESCE(pr.systolic::TEXT, '-'), '/', COALESCE(pr.diastolic::TEXT, '-')) as value"),
+                DB::raw("'mmHg' as unit"),
+                'u.full_name as input_by',
+                DB::raw("'Keluarga' as relation")
+            );
+
+        $activity = DB::table('activity_records as ar')
+            ->join('users as u', 'ar.input_by_user_id', '=', 'u.user_id')
+            ->where('ar.patient_id', $patientId)
+            ->where('ar.validation_status', 'Menunggu')
+            ->select(
+                DB::raw("'activity' as record_type"),
+                'ar.activity_id as record_id',
+                DB::raw("'Aktivitas Fisik' as title"),
+                'ar.activity_date as date',
+                DB::raw("CAST(ar.duration_minutes as TEXT) as value"),
+                DB::raw("'menit' as unit"),
+                'u.full_name as input_by',
+                DB::raw("'Keluarga' as relation")
+            );
+
+        $meal = DB::table('meal_records as mr')
+            ->join('users as u', 'mr.input_by_user_id', '=', 'u.user_id')
+            ->where('mr.patient_id', $patientId)
+            ->where('mr.validation_status', 'Menunggu')
+            ->select(
+                DB::raw("'meal' as record_type"),
+                'mr.meal_id as record_id',
+                DB::raw("'Pola Makan' as title"),
+                'mr.meal_date as date',
+                DB::raw("COALESCE(CAST(mr.carbohydrate_estimate as TEXT), '-') as value"),
+                DB::raw("'gram' as unit"),
+                'u.full_name as input_by',
+                DB::raw("'Keluarga' as relation")
+            );
+
+        $data = $glucose
+            ->unionAll($physiological)
+            ->unionAll($activity)
+            ->unionAll($meal)
+            ->orderByDesc('date')
+            ->get();
+
+        return response()->json([
+            'message' => 'Data menunggu validasi berhasil diambil',
+            'data' => $data
+        ]);
+    }
+
+    public function respondValidation(Request $request)
+    {
+        $request->validate([
+            'record_type' => 'required|in:glucose,physiological,activity,meal',
+            'record_id' => 'required|integer',
+            'status' => 'required|in:Valid,Ditolak',
+        ]);
+
+        $tableMap = [
+            'glucose' => ['table' => 'glucose_records', 'id' => 'glucose_id'],
+            'physiological' => ['table' => 'physiological_records', 'id' => 'physiological_id'],
+            'activity' => ['table' => 'activity_records', 'id' => 'activity_id'],
+            'meal' => ['table' => 'meal_records', 'id' => 'meal_id'],
+        ];
+
+        $target = $tableMap[$request->record_type];
+
+        $updated = DB::table($target['table'])
+            ->where($target['id'], $request->record_id)
+            ->where('validation_status', 'Menunggu')
+            ->update([
+                'validation_status' => $request->status,
+                'updated_at' => now(),
+            ]);
+
+        if (!$updated) {
+            return response()->json([
+                'message' => 'Data tidak ditemukan atau sudah divalidasi'
+            ], 404);
+        }
+
+        return response()->json([
+            'message' => $request->status === 'Valid'
+                ? 'Data berhasil diterima'
+                : 'Data berhasil ditolak'
+        ]);
+    }
+
 }

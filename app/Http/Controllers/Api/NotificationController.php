@@ -17,7 +17,7 @@ class NotificationController extends Controller
                 'n.notification_id',
                 'n.user_id',
                 'n.notification_type_id',
-                'nt.notification_type_name',
+                'nt.notification_type_name as type',
                 'n.title',
                 'n.message',
                 'n.reference_id',

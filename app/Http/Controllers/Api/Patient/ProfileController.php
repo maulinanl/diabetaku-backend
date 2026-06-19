@@ -96,4 +96,156 @@ class ProfileController extends Controller
             'message' => 'Profil pasien berhasil diperbarui'
         ]);
     }
+
+    public function dashboard($patientId)
+    {
+        $patient = DB::table('patients')
+            ->where('patient_id', $patientId)
+            ->first();
+
+        if (!$patient) {
+            return response()->json([
+                'message' => 'Pasien tidak ditemukan'
+            ], 404);
+        }
+
+        $glucose = DB::table('glucose_records')
+            ->where('patient_id', $patientId)
+            ->latest('measured_at')
+            ->first();
+
+        $physio = DB::table('physiological_records')
+            ->where('patient_id', $patientId)
+            ->latest('measured_at')
+            ->first();
+
+        return response()->json([
+            'data' => [
+                'glucose' => [
+                    'value' => $glucose?->glucose_value,
+                    'status' => $glucose
+                        ? ($glucose->glucose_value > 180
+                            ? 'Tinggi'
+                            : 'Normal')
+                        : '-',
+                ],
+
+                'blood_pressure' => [
+                    'value' => $physio
+                        ? "{$physio->systolic}/{$physio->diastolic}"
+                        : '-',
+                    'status' => 'Normal',
+                ],
+
+                'weight' => [
+                    'value' => $physio?->weight_kg,
+                    'status' => 'Normal',
+                ],
+            ]
+        ]);
+    }
+
+    public function latestRecommendation($patientId)
+    {
+        $data = DB::table('recommendations as r')
+            ->join('clinical_notes as cn', 'r.clinical_note_id', '=', 'cn.clinical_note_id')
+            ->join('doctors as d', 'cn.doctor_id', '=', 'd.doctor_id')
+            ->join('users as u', 'd.user_id', '=', 'u.user_id')
+            ->where('cn.patient_id', $patientId)
+            ->select(
+                'r.recommendation_id',
+                'r.recommendation_text',
+                'r.category',
+                'cn.clinical_note_id',
+                'u.full_name as doctor_name',
+                'r.created_at'
+            )
+            ->orderByDesc('r.created_at')
+            ->first();
+
+        return response()->json([
+            'data' => $data
+        ]);
+    }
+
+    public function homeSummary($patientId)
+    {
+        $today = now()->toDateString();
+
+        $latestRecommendation = DB::table('recommendations as r')
+            ->join('clinical_notes as cn', 'r.clinical_note_id', '=', 'cn.clinical_note_id')
+            ->join('doctors as d', 'cn.doctor_id', '=', 'd.doctor_id')
+            ->join('users as u', 'd.user_id', '=', 'u.user_id')
+            ->where('cn.patient_id', $patientId)
+            ->select(
+                'r.recommendation_id',
+                'r.recommendation_text',
+                'r.category',
+                'r.created_at',
+                'u.full_name as doctor_name'
+            )
+            ->orderByDesc('r.created_at')
+            ->first();
+
+        $glucoseDone = DB::table('glucose_records')
+            ->where('patient_id', $patientId)
+            ->whereDate('measured_at', $today)
+            ->exists();
+
+        $activityDone = DB::table('activity_records')
+            ->where('patient_id', $patientId)
+            ->whereDate('activity_date', $today)
+            ->exists();
+
+        $mealDone = DB::table('meal_records')
+            ->where('patient_id', $patientId)
+            ->whereDate('meal_date', $today)
+            ->exists();
+
+        $medicationDone = DB::table('medication_consumption_logs')
+            ->where('patient_id', $patientId)
+            ->whereDate('log_date', $today)
+            ->exists();
+
+        $items = [
+            'glucose' => $glucoseDone,
+            'medication' => $medicationDone,
+            'activity' => $activityDone,
+            'meal' => $mealDone,
+        ];
+
+        $completed = collect($items)->filter()->count();
+
+        $pendingValidationCount =
+            DB::table('glucose_records')
+                ->where('patient_id', $patientId)
+                ->where('validation_status', 'Menunggu')
+                ->count()
+            + DB::table('physiological_records')
+                ->where('patient_id', $patientId)
+                ->where('validation_status', 'Menunggu')
+                ->count()
+            + DB::table('activity_records')
+                ->where('patient_id', $patientId)
+                ->where('validation_status', 'Menunggu')
+                ->count()
+            + DB::table('meal_records')
+                ->where('patient_id', $patientId)
+                ->where('validation_status', 'Menunggu')
+                ->count();
+
+        return response()->json([
+            'message' => 'Ringkasan home pasien berhasil diambil',
+            'data' => [
+                'latest_recommendation' => $latestRecommendation,
+                'has_pending_validation' => $pendingValidationCount > 0,
+                'pending_validation_count' => $pendingValidationCount,
+                'daily_checklist' => [
+                    'completed' => $completed,
+                    'total' => 4,
+                    'items' => $items,
+                ],
+            ],
+        ]);
+    }
 }

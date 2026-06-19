@@ -11,8 +11,10 @@ use App\Http\Controllers\Api\Doctor\HistoryController as DoctorHistoryController
 use App\Http\Controllers\Api\Patient\ProfileController as PatientProfileController;
 use App\Http\Controllers\Api\Patient\HealthController as PatientHealthController;
 use App\Http\Controllers\Api\Patient\ConnectionController as PatientConnectionController;
+use App\Http\Controllers\Api\Patient\PatientController as PatientController;
 use App\Http\Controllers\Api\Family\ProfileController as FamilyProfileController;
 use App\Http\Controllers\Api\Family\PatientController as FamilyPatientController;
+use App\Http\Controllers\Api\Family\HealthController as FamilyHealthController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\Admin\DoctorController as AdminDoctorController;
 use App\Http\Controllers\Api\Admin\UserController as AdminUserController;
@@ -37,6 +39,7 @@ Route::prefix('auth')->group(function () {
     Route::middleware('auth:sanctum')->put('/change-password', [AuthController::class, 'changePassword']);
     Route::middleware('auth:sanctum')->post('/logout', [AuthController::class, 'logout']);
 });
+
 
 Route::prefix('master')->group(function () {
     Route::get('/specializations', [MasterDataController::class, 'specializations']);
@@ -94,34 +97,70 @@ Route::prefix('patient')->group(function () {
     Route::post('/health/meal', [PatientHealthController::class, 'storeMeal']);
     Route::post('/health/medication', [PatientHealthController::class, 'storeMedication']);
     Route::get('/health-history/{patientId}', [PatientHealthController::class, 'history']);
+    Route::get('/recommendations/{patientId}', [PatientHealthController::class, 'recommendations']);
+    Route::get('/latest-recommendation/{patientId}',[PatientHealthController::class, 'latestRecommendation']);
+    Route::get('/prescriptions/{patientId}/active', [PatientHealthController::class, 'activePrescriptions']);
+    Route::get('/pending-validations/{patientId}', [PatientHealthController::class, 'pendingValidations']);
+    Route::post('/respond-validation', [PatientHealthController::class, 'respondValidation']);
 
-    Route::get('/find-doctors', [PatientConnectionController::class, 'findDoctors']);
-    Route::post('/connection-requests', [PatientConnectionController::class, 'requestDoctor']);
-    Route::get('/doctors/{patientId}', [PatientConnectionController::class, 'doctors']);
-    Route::get('/doctors/{patientId}/{doctorId}', [PatientConnectionController::class, 'doctorDetail']);
-    Route::delete('/doctors/{doctorId}', [PatientConnectionController::class, 'disconnectDoctor']);
+    Route::get('/connections/doctors/{patientId}', [PatientConnectionController::class, 'connectedDoctors']);
+    Route::get('/connections/families/{patientId}', [PatientConnectionController::class, 'connectedFamilies']);
+    Route::get('/connections/requests/{patientId}', [PatientConnectionController::class, 'incomingRequests']);
+
+    Route::get('/doctors/search', [PatientConnectionController::class, 'searchDoctors']);
+    Route::post('/doctors/{doctorId}/request', [PatientConnectionController::class, 'requestDoctorConnection']);
+
+    Route::post('/family-requests/accept', [PatientConnectionController::class, 'acceptFamilyRequest']);
+    Route::post('/family-requests/reject', [PatientConnectionController::class, 'rejectFamilyRequest']);
+
+    Route::delete('/connections/doctors/{connectionId}', [PatientConnectionController::class, 'disconnectDoctor']);
+    Route::delete('/connections/families/{connectionId}', [PatientConnectionController::class, 'disconnectFamily']);
+
+    Route::get('/home-summary/{patientId}', [PatientController::class, 'homeSummary']);
+
+    Route::get('/dashboard/{patientId}', [PatientProfileController::class, 'dashboard']);
 });
 
 Route::prefix('family')->group(function () {
     Route::get('/profile/{familyId}', [FamilyProfileController::class, 'show']);
     Route::put('/profile/{familyId}', [FamilyProfileController::class, 'update']);
 
-    Route::post('/find-patient', [FamilyPatientController::class, 'findPatient']);
-    Route::post('/connection-requests', [FamilyPatientController::class, 'requestConnection']);
     Route::get('/patients/{familyId}', [FamilyPatientController::class, 'patients']);
-    Route::delete('/patients/{patientId}', [FamilyPatientController::class, 'disconnect']);
-
     Route::get('/patients/{patientId}/dashboard', [FamilyPatientController::class, 'dashboard']);
     Route::get('/patients/{patientId}/health-data', [FamilyPatientController::class, 'healthData']);
     Route::get('/patients/{patientId}/clinical-notes', [FamilyPatientController::class, 'clinicalNotes']);
+    Route::get('/patients/{patientId}/histories', [FamilyPatientController::class, 'histories']);
     Route::get('/patients/{patientId}/recommendations', [FamilyPatientController::class, 'recommendations']);
+    
+    Route::post('/find-patient', [FamilyPatientController::class, 'findPatient']);
+    Route::post('/request-connection', [FamilyPatientController::class, 'requestConnection']);
+    Route::delete('/patients/{patientId}/disconnect', [FamilyPatientController::class, 'disconnect']);
+
+    Route::post('/patients/{patientId}/glucose', [FamilyHealthController::class, 'storeGlucose']);
+    Route::post('/patients/{patientId}/physiological', [FamilyHealthController::class, 'storePhysiological']);
+    Route::post('/patients/{patientId}/activity', [FamilyHealthController::class, 'storeActivity']);
+    Route::post('/patients/{patientId}/meal', [FamilyHealthController::class, 'storeMeal']);
+    Route::post('/patients/{patientId}/medication', [FamilyHealthController::class, 'storeMedication']);
 });
 
 Route::prefix('notifications')->group(function () {
+
     Route::get('/user/{userId}', [NotificationController::class, 'index']);
-    Route::post('/', [NotificationController::class, 'store']);
-    Route::patch('/{notificationId}/read', [NotificationController::class, 'markAsRead']);
-    Route::patch('/user/{userId}/read-all', [NotificationController::class, 'markAllAsRead']);
+
+    Route::patch('/{notificationId}/read', [
+        NotificationController::class,
+        'markAsRead'
+    ]);
+
+    Route::patch('/user/{userId}/read-all', [
+        NotificationController::class,
+        'markAllAsRead'
+    ]);
+
+    Route::post('/', [
+        NotificationController::class,
+        'store'
+    ]);
 });
 
 Route::prefix('admin')->group(function () {
