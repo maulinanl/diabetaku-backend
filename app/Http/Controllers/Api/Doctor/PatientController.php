@@ -8,8 +8,105 @@ use Illuminate\Support\Facades\DB;
 
 class PatientController extends Controller
 {
+    private function createNotification($userId, $typeId, $title, $message, $referenceId = null, $referenceType = null)
+    {
+        if (!$userId) return;
+
+        DB::table('notifications')->insert([
+            'user_id' => $userId,
+            'notification_type_id' => $typeId,
+            'title' => $title,
+            'message' => $message,
+            'reference_id' => $referenceId,
+            'reference_type' => $referenceType,
+            'is_read' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    private function abnormalConditionSql()
+    {
+        return "
+            EXISTS (
+                SELECT 1
+                FROM glucose_records gr
+                JOIN clinical_parameters cp
+                    ON (
+                        LOWER(cp.parameter_name) LIKE '%gula darah%'
+                        OR LOWER(cp.parameter_name) LIKE '%glukosa%'
+                    )
+                    AND (
+                        LOWER(cp.parameter_name) LIKE '%' || LOWER(gr.measurement_type::text) || '%'
+                    )
+                LEFT JOIN patient_custom_thresholds pct
+                    ON pct.patient_id = gr.patient_id
+                    AND pct.parameter_id = cp.parameter_id
+                WHERE gr.patient_id = p.patient_id
+                AND COALESCE(gr.validation_status, 'Valid') = 'Valid'
+                AND (
+                    gr.glucose_value < COALESCE(pct.custom_min, cp.default_min)
+                    OR gr.glucose_value > COALESCE(pct.custom_max, cp.default_max)
+                )
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM physiological_records pr
+                JOIN clinical_parameters cp
+                    ON LOWER(cp.parameter_name) LIKE '%sistolik%'
+                LEFT JOIN patient_custom_thresholds pct
+                    ON pct.patient_id = pr.patient_id
+                    AND pct.parameter_id = cp.parameter_id
+                WHERE pr.patient_id = p.patient_id
+                AND COALESCE(pr.validation_status, 'Valid') = 'Valid'
+                AND pr.systolic IS NOT NULL
+                AND (
+                    pr.systolic < COALESCE(pct.custom_min, cp.default_min)
+                    OR pr.systolic > COALESCE(pct.custom_max, cp.default_max)
+                )
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM physiological_records pr
+                JOIN clinical_parameters cp
+                    ON LOWER(cp.parameter_name) LIKE '%diastolik%'
+                LEFT JOIN patient_custom_thresholds pct
+                    ON pct.patient_id = pr.patient_id
+                    AND pct.parameter_id = cp.parameter_id
+                WHERE pr.patient_id = p.patient_id
+                AND COALESCE(pr.validation_status, 'Valid') = 'Valid'
+                AND pr.diastolic IS NOT NULL
+                AND (
+                    pr.diastolic < COALESCE(pct.custom_min, cp.default_min)
+                    OR pr.diastolic > COALESCE(pct.custom_max, cp.default_max)
+                )
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM physiological_records pr
+                JOIN clinical_parameters cp
+                    ON (
+                        LOWER(cp.parameter_name) LIKE '%bmi%'
+                        OR LOWER(cp.parameter_name) LIKE '%imt%'
+                    )
+                LEFT JOIN patient_custom_thresholds pct
+                    ON pct.patient_id = pr.patient_id
+                    AND pct.parameter_id = cp.parameter_id
+                WHERE pr.patient_id = p.patient_id
+                AND COALESCE(pr.validation_status, 'Valid') = 'Valid'
+                AND pr.bmi IS NOT NULL
+                AND (
+                    pr.bmi < COALESCE(pct.custom_min, cp.default_min)
+                    OR pr.bmi > COALESCE(pct.custom_max, cp.default_max)
+                )
+            )
+        ";
+    }
+
     public function index($doctorId)
     {
+        $abnormalSql = $this->abnormalConditionSql();
+
         $patients = DB::table('doctor_patient_relations as dpr')
             ->join('patients as p', 'dpr.patient_id', '=', 'p.patient_id')
             ->join('users as u', 'p.user_id', '=', 'u.user_id')
@@ -25,8 +122,17 @@ class PatientController extends Controller
                 'p.diabetes_type',
                 'dpr.status as relation_status',
                 'dpr.connected_at',
-                'dpr.updated_at'
+                'dpr.updated_at',
+                DB::raw("CASE WHEN ($abnormalSql) THEN true ELSE false END as is_abnormal"),
+                DB::raw("CASE WHEN ($abnormalSql) THEN 'abnormal' ELSE 'normal' END as status")
             )
+            ->orderByRaw("
+                CASE
+                    WHEN dpr.status = 'Diterima' AND ($abnormalSql) THEN 1
+                    WHEN dpr.status = 'Diterima' THEN 2
+                    ELSE 3
+                END
+            ")
             ->orderBy('u.full_name')
             ->get();
 
@@ -51,22 +157,18 @@ class PatientController extends Controller
             )
             ->first();
 
-        $latestGlucose = DB::table('glucose_records')
-            ->where('patient_id', $patientId)
-            ->orderByDesc('measured_at')
-            ->first();
-
-        $latestPhysiological = DB::table('physiological_records')
-            ->where('patient_id', $patientId)
-            ->orderByDesc('measured_at')
-            ->first();
-
         return response()->json([
             'message' => 'Dashboard pasien berhasil diambil',
             'data' => [
                 'profile' => $profile,
-                'latest_glucose' => $latestGlucose,
-                'latest_physiological' => $latestPhysiological,
+                'latest_glucose' => DB::table('glucose_records')
+                    ->where('patient_id', $patientId)
+                    ->orderByDesc('measured_at')
+                    ->first(),
+                'latest_physiological' => DB::table('physiological_records')
+                    ->where('patient_id', $patientId)
+                    ->orderByDesc('measured_at')
+                    ->first(),
             ]
         ]);
     }
@@ -185,6 +287,7 @@ class PatientController extends Controller
                 'set_by_doctor_id' => $request->doctor_id,
                 'custom_min' => $request->custom_min,
                 'custom_max' => $request->custom_max,
+                'created_at' => now(),
                 'updated_at' => now(),
             ]
         );
@@ -212,17 +315,44 @@ class PatientController extends Controller
             'doctor_id' => 'required|exists:doctors,doctor_id',
         ]);
 
-        DB::table('doctor_patient_relations')
-            ->where('doctor_id', $request->doctor_id)
-            ->where('patient_id', $patientId)
-            ->update([
-                'status' => 'Diputus',
-                'updated_at' => now(),
-            ]);
+        return DB::transaction(function () use ($request, $patientId) {
+            $updated = DB::table('doctor_patient_relations')
+                ->where('doctor_id', $request->doctor_id)
+                ->where('patient_id', $patientId)
+                ->where('status', 'Diterima')
+                ->update([
+                    'status' => 'Diputus',
+                    'updated_at' => now(),
+                ]);
 
-        return response()->json([
-            'message' => 'Relasi dokter dan pasien berhasil diputus'
-        ]);
+            if ($updated === 0) {
+                return response()->json([
+                    'message' => 'Relasi dokter dan pasien tidak ditemukan atau sudah diputus'
+                ], 404);
+            }
+
+            $patientUserId = DB::table('patients')
+                ->where('patient_id', $patientId)
+                ->value('user_id');
+
+            $doctorName = DB::table('doctors as d')
+                ->join('users as u', 'd.user_id', '=', 'u.user_id')
+                ->where('d.doctor_id', $request->doctor_id)
+                ->value('u.full_name');
+
+            $this->createNotification(
+                $patientUserId,
+                6,
+                'Relasi dokter terputus',
+                'Relasi dengan Dr. ' . ($doctorName ?? 'Dokter') . ' telah diputus.',
+                $request->doctor_id,
+                'doctor_connection_disconnected'
+            );
+
+            return response()->json([
+                'message' => 'Relasi dokter dan pasien berhasil diputus'
+            ]);
+        });
     }
 
     public function families($patientId)
@@ -279,19 +409,46 @@ class PatientController extends Controller
             'doctor_id' => 'required|exists:doctors,doctor_id',
         ]);
 
-        DB::table('doctor_patient_relations')
-            ->where('doctor_id', $request->doctor_id)
-            ->where('patient_id', $patientId)
-            ->update([
-                'status' => 'Diterima',
-                'responded_at' => now(),
-                'connected_at' => now(),
-                'updated_at' => now(),
-            ]);
+        return DB::transaction(function () use ($request, $patientId) {
+            $updated = DB::table('doctor_patient_relations')
+                ->where('doctor_id', $request->doctor_id)
+                ->where('patient_id', $patientId)
+                ->where('status', 'Menunggu')
+                ->update([
+                    'status' => 'Diterima',
+                    'responded_at' => now(),
+                    'connected_at' => now(),
+                    'updated_at' => now(),
+                ]);
 
-        return response()->json([
-            'message' => 'Permintaan koneksi berhasil diterima'
-        ]);
+            if ($updated === 0) {
+                return response()->json([
+                    'message' => 'Permintaan koneksi tidak ditemukan atau sudah diproses'
+                ], 404);
+            }
+
+            $patientUserId = DB::table('patients')
+                ->where('patient_id', $patientId)
+                ->value('user_id');
+
+            $doctorName = DB::table('doctors as d')
+                ->join('users as u', 'd.user_id', '=', 'u.user_id')
+                ->where('d.doctor_id', $request->doctor_id)
+                ->value('u.full_name');
+
+            $this->createNotification(
+                $patientUserId,
+                2,
+                'Permintaan koneksi diterima',
+                'Dr. ' . ($doctorName ?? 'Dokter') . ' menerima permintaan koneksi Anda.',
+                $request->doctor_id,
+                'doctor_connection_accepted'
+            );
+
+            return response()->json([
+                'message' => 'Permintaan koneksi berhasil diterima'
+            ]);
+        });
     }
 
     public function rejectConnection(Request $request, $patientId)
@@ -300,18 +457,45 @@ class PatientController extends Controller
             'doctor_id' => 'required|exists:doctors,doctor_id',
         ]);
 
-        DB::table('doctor_patient_relations')
-            ->where('doctor_id', $request->doctor_id)
-            ->where('patient_id', $patientId)
-            ->update([
-                'status' => 'Ditolak',
-                'responded_at' => now(),
-                'updated_at' => now(),
-            ]);
+        return DB::transaction(function () use ($request, $patientId) {
+            $updated = DB::table('doctor_patient_relations')
+                ->where('doctor_id', $request->doctor_id)
+                ->where('patient_id', $patientId)
+                ->where('status', 'Menunggu')
+                ->update([
+                    'status' => 'Ditolak',
+                    'responded_at' => now(),
+                    'updated_at' => now(),
+                ]);
 
-        return response()->json([
-            'message' => 'Permintaan koneksi berhasil ditolak'
-        ]);
+            if ($updated === 0) {
+                return response()->json([
+                    'message' => 'Permintaan koneksi tidak ditemukan atau sudah diproses'
+                ], 404);
+            }
+
+            $patientUserId = DB::table('patients')
+                ->where('patient_id', $patientId)
+                ->value('user_id');
+
+            $doctorName = DB::table('doctors as d')
+                ->join('users as u', 'd.user_id', '=', 'u.user_id')
+                ->where('d.doctor_id', $request->doctor_id)
+                ->value('u.full_name');
+
+            $this->createNotification(
+                $patientUserId,
+                2,
+                'Permintaan koneksi ditolak',
+                'Dr. ' . ($doctorName ?? 'Dokter') . ' menolak permintaan koneksi Anda.',
+                $request->doctor_id,
+                'doctor_connection_rejected'
+            );
+
+            return response()->json([
+                'message' => 'Permintaan koneksi berhasil ditolak'
+            ]);
+        });
     }
 
     public function rejectedConnectionRequests($doctorId)
@@ -343,6 +527,12 @@ class PatientController extends Controller
     {
         $doctorId = $request->query('doctor_id');
 
+        if (!$doctorId) {
+            return response()->json([
+                'message' => 'doctor_id wajib dikirim'
+            ], 422);
+        }
+
         $connection = DB::table('doctor_patient_relations as dpr')
             ->join('patients as p', 'dpr.patient_id', '=', 'p.patient_id')
             ->join('users as u', 'p.user_id', '=', 'u.user_id')
@@ -364,14 +554,16 @@ class PatientController extends Controller
                 'data' => [
                     'patient_id' => $patientId,
                     'status_id' => 0,
+                    'status' => 'Menunggu',
                     'connection_status' => 'Menunggu persetujuan dokter'
                 ]
             ]);
         }
 
         $statusId = match ($connection->status) {
-            'Diterima', 'Aktif', 'accepted', 'active' => 1,
-            'Ditolak', 'rejected' => 2,
+            'Diterima' => 1,
+            'Ditolak' => 2,
+            'Diputus' => 3,
             default => 0,
         };
 

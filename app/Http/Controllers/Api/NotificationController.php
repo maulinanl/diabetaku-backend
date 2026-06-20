@@ -12,37 +12,59 @@ class NotificationController extends Controller
     {
         $data = DB::table('notifications as n')
             ->leftJoin('notification_types as nt', 'n.notification_type_id', '=', 'nt.notification_type_id')
-            ->leftJoin('families as f', function ($join) {
-                $join->on('n.reference_id', '=', 'f.family_id')
-                    ->where('n.reference_type', '=', 'family_request');
-            })
-            ->leftJoin('users as fu', 'f.user_id', '=', 'fu.user_id')
-            ->leftJoin('family_patient_relations as fpr', function ($join) {
-                $join->on('f.family_id', '=', 'fpr.family_id')
-                    ->whereColumn('fpr.patient_id', DB::raw('(select p.patient_id from patients p where p.user_id = n.user_id limit 1)'));
-            })
-            ->leftJoin('relation_types as rt', 'fpr.relation_type_id', '=', 'rt.relation_type_id')
             ->where('n.user_id', $userId)
             ->select(
                 'n.notification_id',
                 'n.user_id',
                 'n.notification_type_id',
-                'nt.notification_type_name as type',
-                DB::raw("LOWER(REPLACE(nt.notification_type_name, ' ', '_')) as type_code"),
+                DB::raw("COALESCE(nt.notification_type_name, '-') as type"),
+                DB::raw("LOWER(REPLACE(COALESCE(nt.notification_type_name, ''), ' ', '_')) as type_code"),
                 'n.title',
                 'n.message',
                 'n.reference_id',
                 'n.reference_type',
                 'n.is_read',
                 'n.created_at',
-                DB::raw("COALESCE(fu.full_name, '') as family_name"),
-                DB::raw("COALESCE(rt.relation_name, '') as relation")
+                'n.updated_at'
             )
             ->orderByDesc('n.created_at')
             ->get();
 
         return response()->json([
             'message' => 'Notifikasi berhasil diambil',
+            'data' => $data
+        ]);
+    }
+
+    public function show($notificationId)
+    {
+        $data = DB::table('notifications as n')
+            ->leftJoin('notification_types as nt', 'n.notification_type_id', '=', 'nt.notification_type_id')
+            ->where('n.notification_id', $notificationId)
+            ->select(
+                'n.notification_id',
+                'n.user_id',
+                'n.notification_type_id',
+                DB::raw("COALESCE(nt.notification_type_name, '-') as type"),
+                DB::raw("LOWER(REPLACE(COALESCE(nt.notification_type_name, ''), ' ', '_')) as type_code"),
+                'n.title',
+                'n.message',
+                'n.reference_id',
+                'n.reference_type',
+                'n.is_read',
+                'n.created_at',
+                'n.updated_at'
+            )
+            ->first();
+
+        if (!$data) {
+            return response()->json([
+                'message' => 'Notifikasi tidak ditemukan'
+            ], 404);
+        }
+
+        return response()->json([
+            'message' => 'Detail notifikasi berhasil diambil',
             'data' => $data
         ]);
     }
@@ -78,18 +100,22 @@ class NotificationController extends Controller
 
     public function markAsRead($notificationId)
     {
-        $updated = DB::table('notifications')
+        $exists = DB::table('notifications')
+            ->where('notification_id', $notificationId)
+            ->exists();
+
+        if (!$exists) {
+            return response()->json([
+                'message' => 'Notifikasi tidak ditemukan'
+            ], 404);
+        }
+
+        DB::table('notifications')
             ->where('notification_id', $notificationId)
             ->update([
                 'is_read' => true,
                 'updated_at' => now(),
             ]);
-
-        if ($updated === 0) {
-            return response()->json([
-                'message' => 'Notifikasi tidak ditemukan'
-            ], 404);
-        }
 
         return response()->json([
             'message' => 'Notifikasi berhasil ditandai sebagai dibaca'
