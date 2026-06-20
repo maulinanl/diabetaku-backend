@@ -8,6 +8,23 @@ use Illuminate\Support\Facades\DB;
 
 class ConnectionController extends Controller
 {
+    private function createNotification($userId, $typeId, $title, $message, $referenceId = null, $referenceType = null)
+    {
+        if (!$userId) return;
+
+        DB::table('notifications')->insert([
+            'user_id' => $userId,
+            'notification_type_id' => $typeId,
+            'title' => $title,
+            'message' => $message,
+            'reference_id' => $referenceId,
+            'reference_type' => $referenceType,
+            'is_read' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
     public function connectedDoctors($patientId)
     {
         $doctors = DB::table('doctor_patient_relations as dpr')
@@ -132,20 +149,40 @@ class ConnectionController extends Controller
             'patient_id' => 'required|exists:patients,patient_id',
         ]);
 
-        DB::table('doctor_patient_relations')->updateOrInsert(
-        [
-            'patient_id' => $request->patient_id,
-            'doctor_id' => $doctorId,
-        ],
-        [
-            'status' => 'Menunggu',
-            'requested_at' => now(),
-            'responded_at' => null,
-            'connected_at' => null,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]
-    );
+        DB::transaction(function () use ($request, $doctorId) {
+            DB::table('doctor_patient_relations')->updateOrInsert(
+                [
+                    'patient_id' => $request->patient_id,
+                    'doctor_id' => $doctorId,
+                ],
+                [
+                    'status' => 'Menunggu',
+                    'requested_at' => now(),
+                    'responded_at' => null,
+                    'connected_at' => null,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]
+            );
+
+            $doctorUserId = DB::table('doctors')
+                ->where('doctor_id', $doctorId)
+                ->value('user_id');
+
+            $patientName = DB::table('patients as p')
+                ->join('users as u', 'p.user_id', '=', 'u.user_id')
+                ->where('p.patient_id', $request->patient_id)
+                ->value('u.full_name');
+
+            $this->createNotification(
+                $doctorUserId,
+                2,
+                'Permintaan koneksi baru',
+                ($patientName ?? 'Pasien') . ' mengajukan permintaan untuk terhubung dengan dokter.',
+                $request->patient_id,
+                'doctor_connection_request'
+            );
+        });
 
         return response()->json([
             'message' => 'Permintaan koneksi dokter berhasil dikirim'
@@ -158,24 +195,44 @@ class ConnectionController extends Controller
             'patient_id' => 'required|exists:patients,patient_id',
         ]);
 
-        $updated = DB::table('doctor_patient_relations')
-            ->where('patient_id', $request->patient_id)
-            ->where('doctor_id', $doctorId)
-            ->where('status', 'Diterima')
-            ->update([
-                'status' => 'Diputus',
-                'updated_at' => now(),
-            ]);
+        return DB::transaction(function () use ($request, $doctorId) {
+            $updated = DB::table('doctor_patient_relations')
+                ->where('patient_id', $request->patient_id)
+                ->where('doctor_id', $doctorId)
+                ->where('status', 'Diterima')
+                ->update([
+                    'status' => 'Diputus',
+                    'updated_at' => now(),
+                ]);
 
-        if ($updated === 0) {
+            if ($updated === 0) {
+                return response()->json([
+                    'message' => 'Relasi dokter tidak ditemukan atau sudah tidak aktif'
+                ], 404);
+            }
+
+            $doctorUserId = DB::table('doctors')
+                ->where('doctor_id', $doctorId)
+                ->value('user_id');
+
+            $patientName = DB::table('patients as p')
+                ->join('users as u', 'p.user_id', '=', 'u.user_id')
+                ->where('p.patient_id', $request->patient_id)
+                ->value('u.full_name');
+
+            $this->createNotification(
+                $doctorUserId,
+                6,
+                'Relasi pasien terputus',
+                'Relasi dengan ' . ($patientName ?? 'pasien') . ' telah diputus. Data lama masih dapat dilihat.',
+                $request->patient_id,
+                'doctor_patient_disconnected'
+            );
+
             return response()->json([
-                'message' => 'Relasi dokter tidak ditemukan atau sudah tidak aktif'
-            ], 404);
-        }
-
-        return response()->json([
-            'message' => 'Relasi dokter berhasil diputus'
-        ]);
+                'message' => 'Relasi dokter berhasil diputus'
+            ]);
+        });
     }
 
     public function acceptFamilyRequest(Request $request)
@@ -186,9 +243,10 @@ class ConnectionController extends Controller
         ]);
 
         DB::transaction(function () use ($request) {
-            DB::table('family_patient_relations')
+            $updated = DB::table('family_patient_relations')
                 ->where('patient_id', $request->patient_id)
                 ->where('family_id', $request->family_id)
+                ->where('status', 'Menunggu')
                 ->update([
                     'status' => 'Diterima',
                     'responded_at' => now(),
@@ -196,43 +254,27 @@ class ConnectionController extends Controller
                     'updated_at' => now(),
                 ]);
 
-            $family = DB::table('families')
-                ->join('users', 'families.user_id', '=', 'users.user_id')
-                ->where('families.family_id', $request->family_id)
-                ->select('families.family_id', 'users.user_id', 'users.full_name')
-                ->first();
-
-            $patient = DB::table('patients')
-                ->join('users', 'patients.user_id', '=', 'users.user_id')
-                ->where('patients.patient_id', $request->patient_id)
-                ->select('patients.patient_id', 'users.full_name')
-                ->first();
-
-            $typeId = DB::table('notification_types')
-                ->where('notification_type_name', 'Koneksi')
-                ->value('notification_type_id');
-
-            if (!$typeId) {
-                $typeId = DB::table('notification_types')->insertGetId([
-                    'notification_type_name' => 'Koneksi',
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ], 'notification_type_id');
+            if ($updated === 0) {
+                throw new \Exception('Permintaan tidak ditemukan atau sudah diproses');
             }
 
-            if ($family && $patient) {
-                DB::table('notifications')->insert([
-                    'user_id' => $family->user_id,
-                    'notification_type_id' => $typeId,
-                    'title' => 'Permintaan koneksi diterima',
-                    'message' => $patient->full_name . ' menyetujui permintaan koneksi Anda sebagai pendamping.',
-                    'reference_id' => $request->patient_id,
-                    'reference_type' => 'family_connection',
-                    'is_read' => false,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
-            }
+            $familyUserId = DB::table('families')
+                ->where('family_id', $request->family_id)
+                ->value('user_id');
+
+            $patientName = DB::table('patients as p')
+                ->join('users as u', 'p.user_id', '=', 'u.user_id')
+                ->where('p.patient_id', $request->patient_id)
+                ->value('u.full_name');
+
+            $this->createNotification(
+                $familyUserId,
+                2,
+                'Permintaan koneksi diterima',
+                ($patientName ?? 'Pasien') . ' telah menerima permintaan koneksi Anda.',
+                $request->patient_id,
+                'family_connection_accepted'
+            );
         });
 
         return response()->json([
@@ -247,18 +289,38 @@ class ConnectionController extends Controller
             'family_id' => 'required|exists:families,family_id',
         ]);
 
-        DB::table('family_patient_relations')
-            ->where('patient_id', $request->patient_id)
-            ->where('family_id', $request->family_id)
-            ->where('status', 'Menunggu')
-            ->update([
-                'status' => 'Ditolak',
-                'responded_at' => now(),
-                'updated_at' => now(),
-            ]);
+        DB::transaction(function () use ($request) {
+            DB::table('family_patient_relations')
+                ->where('patient_id', $request->patient_id)
+                ->where('family_id', $request->family_id)
+                ->where('status', 'Menunggu')
+                ->update([
+                    'status' => 'Ditolak',
+                    'responded_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+            $familyUserId = DB::table('families')
+                ->where('family_id', $request->family_id)
+                ->value('user_id');
+
+            $patientName = DB::table('patients as p')
+                ->join('users as u', 'p.user_id', '=', 'u.user_id')
+                ->where('p.patient_id', $request->patient_id)
+                ->value('u.full_name');
+
+            $this->createNotification(
+                $familyUserId,
+                5,
+                'Permintaan koneksi ditolak',
+                ($patientName ?? 'Pasien') . ' menolak permintaan koneksi Anda.',
+                $request->patient_id,
+                'family_connection_rejected'
+            );
+        });
 
         return response()->json([
-            'message' => 'Permintaan berhasil ditolak'
+            'message' => 'Permintaan koneksi ditolak'
         ]);
     }
 
@@ -268,17 +330,37 @@ class ConnectionController extends Controller
             'patient_id' => 'required|exists:patients,patient_id',
         ]);
 
-        DB::table('family_patient_relations')
-            ->where('patient_id', $request->patient_id)
-            ->where('family_id', $familyId)
-            ->where('status', 'Diterima')
-            ->update([
-                'status' => 'Diputus',
-                'updated_at' => now(),
-            ]);
+        return DB::transaction(function () use ($request, $familyId) {
+            DB::table('family_patient_relations')
+                ->where('patient_id', $request->patient_id)
+                ->where('family_id', $familyId)
+                ->where('status', 'Diterima')
+                ->update([
+                    'status' => 'Diputus',
+                    'updated_at' => now(),
+                ]);
 
-        return response()->json([
-            'message' => 'Relasi keluarga berhasil diputus'
-        ]);
+            $familyUserId = DB::table('families')
+                ->where('family_id', $familyId)
+                ->value('user_id');
+
+            $patientName = DB::table('patients as p')
+                ->join('users as u', 'p.user_id', '=', 'u.user_id')
+                ->where('p.patient_id', $request->patient_id)
+                ->value('u.full_name');
+
+            $this->createNotification(
+                $familyUserId,
+                6,
+                'Relasi pasien terputus',
+                'Relasi dengan ' . ($patientName ?? 'pasien') . ' telah diputus.',
+                $request->patient_id,
+                'family_patient_disconnected'
+            );
+
+            return response()->json([
+                'message' => 'Relasi keluarga berhasil diputus'
+            ]);
+        });
     }
 }

@@ -41,7 +41,14 @@ class PatientController extends Controller
         $profile = DB::table('patients as p')
             ->join('users as u', 'p.user_id', '=', 'u.user_id')
             ->where('p.patient_id', $patientId)
-            ->select('p.*', 'u.full_name', 'u.email', 'u.phone_number', 'u.gender', 'u.date_of_birth')
+            ->select(
+                'p.*',
+                'u.full_name',
+                'u.email',
+                'u.phone_number',
+                'u.gender',
+                'u.date_of_birth'
+            )
             ->first();
 
         $latestGlucose = DB::table('glucose_records')
@@ -111,6 +118,30 @@ class PatientController extends Controller
         ]);
     }
 
+    public function medication($patientId)
+    {
+        $data = DB::table('medication_consumption_logs as mcl')
+            ->leftJoin('prescriptions as p', 'mcl.prescription_id', '=', 'p.prescription_id')
+            ->leftJoin('medications as m', 'p.medication_id', '=', 'm.medication_id')
+            ->leftJoin('prescription_schedules as ps', 'mcl.schedule_id', '=', 'ps.schedule_id')
+            ->where('mcl.patient_id', $patientId)
+            ->select(
+                'mcl.*',
+                'm.medication_name',
+                'p.dosage',
+                'p.form',
+                'ps.session',
+                'ps.dose_per_session'
+            )
+            ->orderByDesc('mcl.log_date')
+            ->get();
+
+        return response()->json([
+            'message' => 'Data konsumsi obat berhasil diambil',
+            'data' => $data
+        ]);
+    }
+
     public function thresholds($patientId)
     {
         $data = DB::table('clinical_parameters as cp')
@@ -154,7 +185,6 @@ class PatientController extends Controller
                 'set_by_doctor_id' => $request->doctor_id,
                 'custom_min' => $request->custom_min,
                 'custom_max' => $request->custom_max,
-                'created_at' => now(),
                 'updated_at' => now(),
             ]
         );
@@ -192,28 +222,6 @@ class PatientController extends Controller
 
         return response()->json([
             'message' => 'Relasi dokter dan pasien berhasil diputus'
-        ]);
-    }
-    public function medication($patientId)
-    {
-        $data = DB::table('medication_consumption_logs as mcl')
-            ->leftJoin('prescriptions as p', 'mcl.prescription_id', '=', 'p.prescription_id')
-            ->leftJoin('prescription_schedules as ps', 'mcl.schedule_id', '=', 'ps.schedule_id')
-            ->where('mcl.patient_id', $patientId)
-            ->select(
-                'mcl.*',
-                'p.drug_name',
-                'p.dosage',
-                'p.form',
-                'ps.session',
-                'ps.dose_per_session'
-            )
-            ->orderByDesc('mcl.log_date')
-            ->get();
-
-        return response()->json([
-            'message' => 'Data konsumsi obat berhasil diambil',
-            'data' => $data
         ]);
     }
 

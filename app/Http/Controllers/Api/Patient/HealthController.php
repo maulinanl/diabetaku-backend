@@ -217,44 +217,85 @@ class HealthController extends Controller
 
     public function history($patientId)
     {
+        $roleCase = "
+            CASE
+                WHEN r.role_name ILIKE '%family%' OR r.role_name ILIKE '%keluarga%' THEN 'Keluarga'
+                WHEN r.role_name ILIKE '%patient%' OR r.role_name ILIKE '%pasien%' THEN 'Pasien'
+                ELSE 'Pasien'
+            END as input_by_role
+        ";
+
         return response()->json([
             'message' => 'Riwayat kesehatan berhasil diambil',
             'data' => [
-                'glucose' => DB::table('glucose_records')->where('patient_id', $patientId)->orderByDesc('measured_at')->get(),
-                'physiological' => DB::table('physiological_records')->where('patient_id', $patientId)->orderByDesc('measured_at')->get(),
-                'activity' => DB::table('activity_records')->where('patient_id', $patientId)->orderByDesc('activity_date')->get(),
-                'meal' => DB::table('meal_records')->where('patient_id', $patientId)->orderByDesc('meal_date')->get(),
+                'glucose' => DB::table('glucose_records as gr')
+                    ->leftJoin('users as iu', 'gr.input_by_user_id', '=', 'iu.user_id')
+                    ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
+                    ->where('gr.patient_id', $patientId)
+                    ->select(
+                        'gr.*',
+                        DB::raw("COALESCE(iu.full_name, '-') as input_by_name"),
+                        DB::raw($roleCase)
+                    )
+                    ->orderByDesc('gr.measured_at')
+                    ->get(),
+
+                'physiological' => DB::table('physiological_records as pr')
+                    ->leftJoin('users as iu', 'pr.input_by_user_id', '=', 'iu.user_id')
+                    ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
+                    ->where('pr.patient_id', $patientId)
+                    ->select(
+                        'pr.*',
+                        DB::raw("COALESCE(iu.full_name, '-') as input_by_name"),
+                        DB::raw($roleCase)
+                    )
+                    ->orderByDesc('pr.measured_at')
+                    ->get(),
+
+                'activity' => DB::table('activity_records as ar')
+                    ->leftJoin('users as iu', 'ar.input_by_user_id', '=', 'iu.user_id')
+                    ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
+                    ->where('ar.patient_id', $patientId)
+                    ->select(
+                        'ar.*',
+                        DB::raw("COALESCE(iu.full_name, '-') as input_by_name"),
+                        DB::raw($roleCase)
+                    )
+                    ->orderByDesc('ar.activity_date')
+                    ->get(),
+
+                'meal' => DB::table('meal_records as mr')
+                    ->leftJoin('users as iu', 'mr.input_by_user_id', '=', 'iu.user_id')
+                    ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
+                    ->where('mr.patient_id', $patientId)
+                    ->select(
+                        'mr.*',
+                        DB::raw("COALESCE(iu.full_name, '-') as input_by_name"),
+                        DB::raw($roleCase)
+                    )
+                    ->orderByDesc('mr.meal_date')
+                    ->get(),
+
                 'medication' => DB::table('medication_consumption_logs as l')
-                    ->join(
-                        'prescriptions as p',
-                        'l.prescription_id',
-                        '=',
-                        'p.prescription_id'
-                    )
-                    ->join(
-                        'medications as m',
-                        'p.medication_id',
-                        '=',
-                        'm.medication_id'
-                    )
-                    ->join(
-                        'prescription_schedules as ps',
-                        'l.schedule_id',
-                        '=',
-                        'ps.schedule_id'
-                    )
+                    ->join('prescriptions as p', 'l.prescription_id', '=', 'p.prescription_id')
+                    ->join('medications as m', 'p.medication_id', '=', 'm.medication_id')
+                    ->join('prescription_schedules as ps', 'l.schedule_id', '=', 'ps.schedule_id')
+                    ->leftJoin('users as iu', 'l.input_by_user_id', '=', 'iu.user_id')
+                    ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
+                    ->where('l.patient_id', $patientId)
                     ->select(
                         'l.*',
                         'm.medication_name',
                         'ps.session',
-                        'ps.dose_per_session'
+                        'ps.dose_per_session',
+                        DB::raw("COALESCE(iu.full_name, '-') as input_by_name"),
+                        DB::raw($roleCase)
                     )
-                    ->where('l.patient_id', $patientId)
                     ->orderByDesc('l.log_date')
                     ->get(),
-                            ]
-                        ]);
-                    }
+            ]
+        ]);
+    }
 
     public function recommendations($patientId)
     {

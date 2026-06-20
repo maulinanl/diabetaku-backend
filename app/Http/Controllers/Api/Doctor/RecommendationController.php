@@ -8,6 +8,29 @@ use Illuminate\Support\Facades\DB;
 
 class RecommendationController extends Controller
 {
+    private function createNotification(
+        $userId,
+        $typeId,
+        $title,
+        $message,
+        $referenceId = null,
+        $referenceType = null
+    ) {
+        if (!$userId || !$typeId) return;
+
+        DB::table('notifications')->insert([
+            'user_id' => $userId,
+            'notification_type_id' => $typeId,
+            'title' => $title,
+            'message' => $message,
+            'reference_id' => $referenceId,
+            'reference_type' => $referenceType,
+            'is_read' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
     public function store(Request $request, $clinicalNoteId)
     {
         $request->validate([
@@ -20,13 +43,18 @@ class RecommendationController extends Controller
 
         $clinicalNote = DB::table('clinical_notes as cn')
             ->join('patients as p', 'cn.patient_id', '=', 'p.patient_id')
-            ->join('users as u', 'p.user_id', '=', 'u.user_id')
+            ->join('users as pu', 'p.user_id', '=', 'pu.user_id')
+            ->join('doctors as d', 'cn.doctor_id', '=', 'd.doctor_id')
+            ->join('users as du', 'd.user_id', '=', 'du.user_id')
             ->where('cn.clinical_note_id', $clinicalNoteId)
             ->select(
-                'cn.*',
-                'p.patient_id',
-                'p.diabetes_type',
-                'u.full_name as patient_name'
+                'cn.clinical_note_id',
+                'cn.patient_id',
+                'cn.doctor_id',
+                'p.user_id as patient_user_id',
+                'pu.full_name as patient_name',
+                'du.user_id as doctor_user_id',
+                'du.full_name as doctor_name'
             )
             ->first();
 
@@ -36,10 +64,6 @@ class RecommendationController extends Controller
             ], 404);
         }
 
-        $doctorUserId = DB::table('doctors')
-            ->where('doctor_id', $clinicalNote->doctor_id)
-            ->value('user_id');
-
         $notificationTypeId = DB::table('notification_types')
             ->where('notification_type_name', 'Rekomendasi Dokter')
             ->value('notification_type_id');
@@ -48,7 +72,6 @@ class RecommendationController extends Controller
             $request,
             $clinicalNoteId,
             $clinicalNote,
-            $doctorUserId,
             $notificationTypeId
         ) {
             $recommendationIds = [];
@@ -65,29 +88,39 @@ class RecommendationController extends Controller
                 $recommendationIds[] = $recommendationId;
 
                 foreach ($request->recipient_user_ids as $userId) {
-                    DB::table('recommendation_recipients')->insert([
-                        'recommendation_id' => $recommendationId,
-                        'user_id' => $userId,
-                        'is_read' => false,
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
+                    DB::table('recommendation_recipients')->updateOrInsert(
+                        [
+                            'recommendation_id' => $recommendationId,
+                            'user_id' => $userId,
+                        ],
+                        [
+                            'is_read' => false,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]
+                    );
                 }
             }
 
-            if ($doctorUserId && $notificationTypeId) {
-                DB::table('notifications')->insert([
-                    'user_id' => $doctorUserId,
-                    'notification_type_id' => $notificationTypeId,
-                    'title' => 'Rekomendasi Terkirim',
-                    'message' => 'Rekomendasi untuk ' . $clinicalNote->patient_name . ' berhasil dikirim.',
-                    'reference_id' => $clinicalNoteId,
-                    'reference_type' => 'clinical_note',
-                    'is_read' => false,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]);
+            foreach ($request->recipient_user_ids as $userId) {
+                $this->createNotification(
+                    $userId,
+                    $notificationTypeId,
+                    'Rekomendasi Dokter',
+                    'Dr. ' . $clinicalNote->doctor_name . ' mengirim rekomendasi baru untuk Anda.',
+                    $clinicalNoteId,
+                    'recommendation'
+                );
             }
+
+            $this->createNotification(
+                $clinicalNote->doctor_user_id,
+                $notificationTypeId,
+                'Rekomendasi Terkirim',
+                'Rekomendasi untuk ' . $clinicalNote->patient_name . ' berhasil dikirim.',
+                $clinicalNoteId,
+                'clinical_note'
+            );
 
             return $recommendationIds;
         });
@@ -145,11 +178,13 @@ class RecommendationController extends Controller
             ->select(
                 'u.user_id',
                 'u.full_name',
-                DB::raw("CASE
-                    WHEN p.patient_id IS NOT NULL THEN 'Pasien'
-                    WHEN f.family_id IS NOT NULL THEN 'Keluarga'
-                    ELSE 'Penerima'
-                END as role")
+                DB::raw("
+                    CASE
+                        WHEN p.patient_id IS NOT NULL THEN 'Pasien'
+                        WHEN f.family_id IS NOT NULL THEN 'Keluarga'
+                        ELSE 'Penerima'
+                    END as role
+                ")
             )
             ->distinct()
             ->get();
