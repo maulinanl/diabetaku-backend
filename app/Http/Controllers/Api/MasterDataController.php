@@ -76,4 +76,14 @@ class MasterDataController extends Controller
                 ->get()
         ]);
     }
+
+    public function prescriptionMealRules()
+    {
+        $data = DB::select("SELECT unnest(enum_range(NULL::meal_rule_enum)) as value");
+
+        return response()->json([
+            'message' => 'Aturan minum berhasil diambil',
+            'data' => collect($data)->pluck('value')->values()
+        ]);
+    }
 }

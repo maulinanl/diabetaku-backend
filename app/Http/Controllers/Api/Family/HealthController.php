@@ -16,7 +16,7 @@ class HealthController extends Controller
         $referenceId = null,
         $referenceType = null
     ) {
-        if (!$userId) return;
+        if (!$userId || !$typeId) return;
 
         DB::table('notifications')->insert([
             'user_id' => $userId,
@@ -45,16 +45,60 @@ class HealthController extends Controller
             ->value('full_name') ?? 'Keluarga';
     }
 
+    private function hasAcceptedRelation($patientId, $inputByUserId)
+    {
+        return DB::table('family_patient_relations as fpr')
+            ->join('families as f', 'fpr.family_id', '=', 'f.family_id')
+            ->where('f.user_id', $inputByUserId)
+            ->where('fpr.patient_id', $patientId)
+            ->where('fpr.status', 'Diterima')
+            ->exists();
+    }
+
+    private function denyIfNoRelation($patientId, $inputByUserId)
+    {
+        if (!$this->hasAcceptedRelation($patientId, $inputByUserId)) {
+            return response()->json([
+                'message' => 'Anda tidak memiliki akses ke pasien ini'
+            ], 403);
+        }
+
+        return null;
+    }
+
+    private function sendValidationNotificationToPatient(
+        $patientId,
+        $inputByUserId,
+        $recordId,
+        $recordType,
+        $title,
+        $label
+    ) {
+        $patientUserId = $this->patientUserId($patientId);
+
+        $this->createNotification(
+            $patientUserId,
+            5,
+            $title,
+            $this->inputterName($inputByUserId) . " menambahkan {$label} yang menunggu validasi Anda.",
+            $recordId,
+            $recordType
+        );
+    }
+
     public function storeGlucose(Request $request, $patientId)
     {
         $request->validate([
             'input_by_user_id' => 'required|exists:users,user_id',
-            'measurement_type' => 'required|in:Puasa,Postprandial,Sewaktu,HbA1c',
+            'measurement_type' => 'required|in:Puasa,Dua Jam Setelah Makan,Sewaktu',
             'glucose_value' => 'required|numeric',
             'measured_at' => 'required|date',
         ]);
 
-        DB::transaction(function () use ($request, $patientId) {
+        $denied = $this->denyIfNoRelation($patientId, $request->input_by_user_id);
+        if ($denied) return $denied;
+
+        return DB::transaction(function () use ($request, $patientId) {
             $id = DB::table('glucose_records')->insertGetId([
                 'patient_id' => $patientId,
                 'input_by_user_id' => $request->input_by_user_id,
@@ -66,19 +110,20 @@ class HealthController extends Controller
                 'updated_at' => now(),
             ], 'glucose_id');
 
-            $this->createNotification(
-                $this->patientUserId($patientId),
-                5,
-                'Validasi Data Glukosa',
-                $this->inputterName($request->input_by_user_id) . ' menambahkan data glukosa yang menunggu validasi Anda.',
+            $this->sendValidationNotificationToPatient(
+                $patientId,
+                $request->input_by_user_id,
                 $id,
-                'validation_glucose'
+                'validation_glucose',
+                'Validasi Data Glukosa',
+                'data glukosa'
             );
-        });
 
-        return response()->json([
-            'message' => 'Data glukosa berhasil dikirim dan menunggu validasi pasien'
-        ], 201);
+            return response()->json([
+                'message' => 'Data glukosa berhasil dikirim dan menunggu validasi pasien',
+                'glucose_id' => $id
+            ], 201);
+        });
     }
 
     public function storePhysiological(Request $request, $patientId)
@@ -92,7 +137,10 @@ class HealthController extends Controller
             'measured_at' => 'required|date',
         ]);
 
-        DB::transaction(function () use ($request, $patientId) {
+        $denied = $this->denyIfNoRelation($patientId, $request->input_by_user_id);
+        if ($denied) return $denied;
+
+        return DB::transaction(function () use ($request, $patientId) {
             $id = DB::table('physiological_records')->insertGetId([
                 'patient_id' => $patientId,
                 'input_by_user_id' => $request->input_by_user_id,
@@ -106,19 +154,20 @@ class HealthController extends Controller
                 'updated_at' => now(),
             ], 'physiological_id');
 
-            $this->createNotification(
-                $this->patientUserId($patientId),
-                5,
-                'Validasi Data Fisiologis',
-                $this->inputterName($request->input_by_user_id) . ' menambahkan data fisiologis yang menunggu validasi Anda.',
+            $this->sendValidationNotificationToPatient(
+                $patientId,
+                $request->input_by_user_id,
                 $id,
-                'validation_physiological'
+                'validation_physiological',
+                'Validasi Data Fisiologis',
+                'data fisiologis'
             );
-        });
 
-        return response()->json([
-            'message' => 'Data fisiologis berhasil dikirim dan menunggu validasi pasien'
-        ], 201);
+            return response()->json([
+                'message' => 'Data fisiologis berhasil dikirim dan menunggu validasi pasien',
+                'physiological_id' => $id
+            ], 201);
+        });
     }
 
     public function storeActivity(Request $request, $patientId)
@@ -131,7 +180,10 @@ class HealthController extends Controller
             'activity_date' => 'required|date',
         ]);
 
-        DB::transaction(function () use ($request, $patientId) {
+        $denied = $this->denyIfNoRelation($patientId, $request->input_by_user_id);
+        if ($denied) return $denied;
+
+        return DB::transaction(function () use ($request, $patientId) {
             $id = DB::table('activity_records')->insertGetId([
                 'patient_id' => $patientId,
                 'input_by_user_id' => $request->input_by_user_id,
@@ -144,19 +196,20 @@ class HealthController extends Controller
                 'updated_at' => now(),
             ], 'activity_id');
 
-            $this->createNotification(
-                $this->patientUserId($patientId),
-                5,
-                'Validasi Data Aktivitas',
-                $this->inputterName($request->input_by_user_id) . ' menambahkan data aktivitas yang menunggu validasi Anda.',
+            $this->sendValidationNotificationToPatient(
+                $patientId,
+                $request->input_by_user_id,
                 $id,
-                'validation_activity'
+                'validation_activity',
+                'Validasi Data Aktivitas',
+                'data aktivitas'
             );
-        });
 
-        return response()->json([
-            'message' => 'Data aktivitas berhasil dikirim dan menunggu validasi pasien'
-        ], 201);
+            return response()->json([
+                'message' => 'Data aktivitas berhasil dikirim dan menunggu validasi pasien',
+                'activity_id' => $id
+            ], 201);
+        });
     }
 
     public function storeMeal(Request $request, $patientId)
@@ -170,7 +223,10 @@ class HealthController extends Controller
             'meal_date' => 'required|date',
         ]);
 
-        DB::transaction(function () use ($request, $patientId) {
+        $denied = $this->denyIfNoRelation($patientId, $request->input_by_user_id);
+        if ($denied) return $denied;
+
+        return DB::transaction(function () use ($request, $patientId) {
             $id = DB::table('meal_records')->insertGetId([
                 'patient_id' => $patientId,
                 'input_by_user_id' => $request->input_by_user_id,
@@ -184,58 +240,94 @@ class HealthController extends Controller
                 'updated_at' => now(),
             ], 'meal_id');
 
-            $this->createNotification(
-                $this->patientUserId($patientId),
-                5,
-                'Validasi Data Makan',
-                $this->inputterName($request->input_by_user_id) . ' menambahkan data makan yang menunggu validasi Anda.',
+            $this->sendValidationNotificationToPatient(
+                $patientId,
+                $request->input_by_user_id,
                 $id,
-                'validation_meal'
+                'validation_meal',
+                'Validasi Data Makan',
+                'data makan'
             );
-        });
 
-        return response()->json([
-            'message' => 'Data makan berhasil dikirim dan menunggu validasi pasien'
-        ], 201);
+            return response()->json([
+                'message' => 'Data makan berhasil dikirim dan menunggu validasi pasien',
+                'meal_id' => $id
+            ], 201);
+        });
     }
 
     public function storeMedication(Request $request, $patientId)
     {
         $request->validate([
             'input_by_user_id' => 'required|exists:users,user_id',
-            'prescription_id' => 'nullable|exists:prescriptions,prescription_id',
-            'schedule_id' => 'nullable|exists:prescription_schedules,schedule_id',
+            'prescription_id' => 'required|exists:prescriptions,prescription_id',
+            'schedule_id' => 'required|exists:prescription_schedules,schedule_id',
             'log_date' => 'required|date',
             'status' => 'required|in:Diminum,Tidak Diminum,Terlambat',
-            'note' => 'nullable|string',
+            'note' => 'nullable|string|max:500',
         ]);
 
-        DB::transaction(function () use ($request, $patientId) {
+        $denied = $this->denyIfNoRelation($patientId, $request->input_by_user_id);
+        if ($denied) return $denied;
+
+        return DB::transaction(function () use ($request, $patientId) {
+            $existing = DB::table('medication_consumption_logs')
+                ->where('patient_id', $patientId)
+                ->where('prescription_id', $request->prescription_id)
+                ->where('schedule_id', $request->schedule_id)
+                ->whereDate('log_date', $request->log_date)
+                ->first();
+
+            $payload = [
+                'input_by_user_id' => $request->input_by_user_id,
+                'status' => $request->status,
+                'checked_at' => $request->status === 'Diminum' ? now() : null,
+                'cancelled_at' => $request->status === 'Tidak Diminum' ? now() : null,
+                'note' => $request->note,
+                'validation_status' => 'Menunggu',
+                'updated_at' => now(),
+            ];
+
+            if ($existing) {
+                DB::table('medication_consumption_logs')
+                    ->where('log_id', $existing->log_id)
+                    ->update($payload);
+
+                return response()->json([
+                    'message' => 'Data kepatuhan obat berhasil diperbarui dan menunggu validasi pasien',
+                    'data' => [
+                        'log_id' => $existing->log_id,
+                        'is_update' => true
+                    ]
+                ], 200);
+            }
+
             $id = DB::table('medication_consumption_logs')->insertGetId([
                 'patient_id' => $patientId,
                 'input_by_user_id' => $request->input_by_user_id,
                 'prescription_id' => $request->prescription_id,
                 'schedule_id' => $request->schedule_id,
                 'log_date' => $request->log_date,
-                'status' => $request->status,
-                'note' => $request->note,
-                'validation_status' => 'Menunggu',
                 'created_at' => now(),
-                'updated_at' => now(),
+                ...$payload,
             ], 'log_id');
 
-            $this->createNotification(
-                $this->patientUserId($patientId),
-                5,
-                'Validasi Data Obat',
-                $this->inputterName($request->input_by_user_id) . ' menambahkan data kepatuhan obat yang menunggu validasi Anda.',
+            $this->sendValidationNotificationToPatient(
+                $patientId,
+                $request->input_by_user_id,
                 $id,
-                'validation_medication'
+                'validation_medication',
+                'Validasi Data Obat',
+                'data kepatuhan obat'
             );
-        });
 
-        return response()->json([
-            'message' => 'Data kepatuhan obat berhasil dikirim dan menunggu validasi pasien'
-        ], 201);
+            return response()->json([
+                'message' => 'Data kepatuhan obat berhasil dikirim dan menunggu validasi pasien',
+                'data' => [
+                    'log_id' => $id,
+                    'is_update' => false
+                ]
+            ], 201);
+        });
     }
 }

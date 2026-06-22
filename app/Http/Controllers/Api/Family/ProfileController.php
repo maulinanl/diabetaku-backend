@@ -20,7 +20,9 @@ class ProfileController extends Controller
                 'u.email',
                 'u.phone_number',
                 'u.date_of_birth',
-                'u.gender'
+                'u.gender',
+                'u.email_verified_at',
+                'u.account_status'
             )
             ->first();
 
@@ -30,9 +32,22 @@ class ProfileController extends Controller
             ], 404);
         }
 
+        $totalPatients = DB::table('family_patient_relations')
+            ->where('family_id', $familyId)
+            ->where('status', 'Diterima')
+            ->count();
+
+        $totalMedicationChecklists = DB::table('medication_consumption_logs as mcl')
+            ->where('mcl.input_by_user_id', $profile->user_id)
+            ->count();
+
+        $data = (array) $profile;
+        $data['total_patients'] = $totalPatients;
+        $data['total_medication_checklists'] = $totalMedicationChecklists;
+
         return response()->json([
             'message' => 'Profil keluarga berhasil diambil',
-            'data' => $profile
+            'data' => $data
         ]);
     }
 
@@ -60,7 +75,6 @@ class ProfileController extends Controller
             ->update([
                 'full_name' => $request->full_name,
                 'phone_number' => $request->phone_number,
-                'date_of_birth' => $request->date_of_birth,
                 'gender' => $request->gender,
                 'updated_at' => now(),
             ]);

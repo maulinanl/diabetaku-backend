@@ -444,4 +444,20 @@ class AuthController extends Controller
         ], 400);
     }
 
+    public function checkEmail(Request $request)
+    {
+        $request->validate([
+            'email' => 'required|email',
+        ]);
+
+        $exists = DB::table('users')
+            ->whereRaw('LOWER(email) = ?', [strtolower(trim($request->email))])
+            ->exists();
+
+        return response()->json([
+            'message' => 'Pengecekan email berhasil',
+            'exists' => $exists,
+        ]);
+    }
+
 }

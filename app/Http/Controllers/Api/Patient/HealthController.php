@@ -25,26 +25,6 @@ class HealthController extends Controller
         ]);
     }
 
-    private function notifyDoctorsIfAbnormal($patientId, $title, $message)
-    {
-        $doctorUserIds = DB::table('doctor_patient_relations as dpr')
-            ->join('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
-            ->where('dpr.patient_id', $patientId)
-            ->where('dpr.status', 'Diterima')
-            ->pluck('d.user_id');
-
-        foreach ($doctorUserIds as $userId) {
-            $this->createNotification(
-                $userId,
-                1,
-                $title,
-                $message,
-                $patientId,
-                'abnormal'
-            );
-        }
-    }
-
     private function getPatientName($patientId)
     {
         return DB::table('patients as p')
@@ -53,12 +33,66 @@ class HealthController extends Controller
             ->value('u.full_name') ?? 'Pasien';
     }
 
-    private function getThreshold($patientId, $parameterName)
+    private function notifyFamilyValidationResult($record, $recordType, $status)
+    {
+        $inputByUserId = $record->input_by_user_id ?? null;
+        if (!$inputByUserId) return;
+
+        $patientName = $this->getPatientName($record->patient_id);
+
+        $label = match ($recordType) {
+            'glucose' => 'data glukosa',
+            'physiological' => 'data fisiologis',
+            'activity' => 'data aktivitas',
+            'meal' => 'data makan',
+            'medication' => 'data obat',
+            default => 'data kesehatan',
+        };
+
+        $this->createNotification(
+            $inputByUserId,
+            5,
+            $status === 'Valid' ? 'Data Diterima' : 'Data Ditolak',
+            $status === 'Valid'
+                ? "{$patientName} menerima {$label} yang Anda tambahkan."
+                : "{$patientName} menolak {$label} yang Anda tambahkan.",
+            $record->patient_id,
+            'validation_result'
+        );
+    }
+
+    private function notifyDoctorsIfAbnormal($patientId, $parameterName, $value, $title, $message)
+    {
+        $doctors = DB::table('doctor_patient_relations as dpr')
+            ->join('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
+            ->where('dpr.patient_id', $patientId)
+            ->where('dpr.status', 'Diterima')
+            ->select('d.doctor_id', 'd.user_id')
+            ->get();
+
+        foreach ($doctors as $doctor) {
+            $threshold = $this->getThreshold($patientId, $doctor->doctor_id, $parameterName);
+
+            if ($this->isOutOfRange($value, $threshold)) {
+                $this->createNotification(
+                    $doctor->user_id,
+                    1,
+                    $title,
+                    $message,
+                    $patientId,
+                    'abnormal'
+                );
+            }
+        }
+    }
+
+    private function getThreshold($patientId, $doctorId, $parameterName)
     {
         return DB::table('clinical_parameters as cp')
-            ->leftJoin('patient_custom_thresholds as pct', function ($join) use ($patientId) {
+            ->leftJoin('patient_custom_thresholds as pct', function ($join) use ($patientId, $doctorId) {
                 $join->on('cp.parameter_id', '=', 'pct.parameter_id')
-                    ->where('pct.patient_id', '=', $patientId);
+                    ->where('pct.patient_id', '=', $patientId)
+                    ->where('pct.set_by_doctor_id', '=', $doctorId);
             })
             ->whereRaw('LOWER(cp.parameter_name) = LOWER(?)', [$parameterName])
             ->select(
@@ -74,35 +108,30 @@ class HealthController extends Controller
     {
         if (!$threshold || $value === null) return false;
 
-        $value = (float) $value;
-        $min = (float) $threshold->min_value;
-        $max = (float) $threshold->max_value;
-
-        return $value < $min || $value > $max;
+        return (float) $value < (float) $threshold->min_value ||
+            (float) $value > (float) $threshold->max_value;
     }
 
     private function checkGlucoseAbnormal($patientId, $measurementType, $glucoseValue)
     {
         $parameterName = match ($measurementType) {
             'Puasa' => 'Gula Darah Puasa',
-            'Postprandial' => 'Gula Darah Postprandial',
+            'Dua Jam Setelah Makan' => 'Gula Darah Postprandial',
             'Sewaktu' => 'Gula Darah Sewaktu',
             default => null,
         };
 
         if (!$parameterName) return;
 
-        $threshold = $this->getThreshold($patientId, $parameterName);
+        $patientName = $this->getPatientName($patientId);
 
-        if ($this->isOutOfRange($glucoseValue, $threshold)) {
-            $patientName = $this->getPatientName($patientId);
-
-            $this->notifyDoctorsIfAbnormal(
-                $patientId,
-                'Data Glukosa Abnormal',
-                "{$patientName} memiliki {$parameterName} sebesar {$glucoseValue} mg/dL, berada di luar batas normal."
-            );
-        }
+        $this->notifyDoctorsIfAbnormal(
+            $patientId,
+            $parameterName,
+            $glucoseValue,
+            'Data Glukosa Abnormal',
+            "{$patientName} memiliki {$parameterName} sebesar {$glucoseValue} mg/dL, berada di luar batas normal."
+        );
     }
 
     private function checkPhysiologicalAbnormal($patientId, $systolic = null, $diastolic = null, $bmi = null)
@@ -110,39 +139,33 @@ class HealthController extends Controller
         $patientName = $this->getPatientName($patientId);
 
         if ($systolic !== null) {
-            $threshold = $this->getThreshold($patientId, 'Sistolik');
-
-            if ($this->isOutOfRange($systolic, $threshold)) {
-                $this->notifyDoctorsIfAbnormal(
-                    $patientId,
-                    'Tekanan Darah Abnormal',
-                    "{$patientName} memiliki tekanan darah sistolik sebesar {$systolic} mmHg, berada di luar batas normal."
-                );
-            }
+            $this->notifyDoctorsIfAbnormal(
+                $patientId,
+                'Sistolik',
+                $systolic,
+                'Tekanan Darah Abnormal',
+                "{$patientName} memiliki tekanan darah sistolik sebesar {$systolic} mmHg, berada di luar batas normal."
+            );
         }
 
         if ($diastolic !== null) {
-            $threshold = $this->getThreshold($patientId, 'Diastolik');
-
-            if ($this->isOutOfRange($diastolic, $threshold)) {
-                $this->notifyDoctorsIfAbnormal(
-                    $patientId,
-                    'Tekanan Darah Abnormal',
-                    "{$patientName} memiliki tekanan darah diastolik sebesar {$diastolic} mmHg, berada di luar batas normal."
-                );
-            }
+            $this->notifyDoctorsIfAbnormal(
+                $patientId,
+                'Diastolik',
+                $diastolic,
+                'Tekanan Darah Abnormal',
+                "{$patientName} memiliki tekanan darah diastolik sebesar {$diastolic} mmHg, berada di luar batas normal."
+            );
         }
 
         if ($bmi !== null) {
-            $threshold = $this->getThreshold($patientId, 'BMI');
-
-            if ($this->isOutOfRange($bmi, $threshold)) {
-                $this->notifyDoctorsIfAbnormal(
-                    $patientId,
-                    'BMI Abnormal',
-                    "{$patientName} memiliki BMI sebesar {$bmi} kg/m2, berada di luar batas normal."
-                );
-            }
+            $this->notifyDoctorsIfAbnormal(
+                $patientId,
+                'BMI',
+                $bmi,
+                'BMI Abnormal',
+                "{$patientName} memiliki BMI sebesar {$bmi} kg/m2, berada di luar batas normal."
+            );
         }
     }
 
@@ -151,7 +174,7 @@ class HealthController extends Controller
         $request->validate([
             'patient_id' => 'required|exists:patients,patient_id',
             'input_by_user_id' => 'required|exists:users,user_id',
-            'measurement_type' => 'required|in:Puasa,Postprandial,Sewaktu,HbA1c',
+            'measurement_type' => 'required|in:Puasa,Dua Jam Setelah Makan,Sewaktu',
             'glucose_value' => 'required|numeric',
             'measured_at' => 'required|date',
         ]);
@@ -167,11 +190,7 @@ class HealthController extends Controller
             'updated_at' => now(),
         ], 'glucose_id');
 
-        $this->checkGlucoseAbnormal(
-            $request->patient_id,
-            $request->measurement_type,
-            $request->glucose_value
-        );
+        $this->checkGlucoseAbnormal($request->patient_id, $request->measurement_type, $request->glucose_value);
 
         return response()->json([
             'message' => 'Data gula darah berhasil ditambahkan',
@@ -289,73 +308,104 @@ class HealthController extends Controller
             'note' => 'nullable|string|max:500',
         ]);
 
-        $prescription = DB::table('prescriptions')
+        $existing = DB::table('medication_consumption_logs')
             ->where('prescription_id', $request->prescription_id)
-            ->where('patient_id', $request->patient_id)
-            ->where('status', 'Aktif')
-            ->first();
-
-        if (!$prescription) {
-            return response()->json([
-                'message' => 'Resep tidak ditemukan atau tidak aktif'
-            ], 404);
-        }
-
-        $schedule = DB::table('prescription_schedules')
-            ->where('schedule_id', $request->schedule_id)
-            ->where('prescription_id', $request->prescription_id)
-            ->first();
-
-        if (!$schedule) {
-            return response()->json([
-                'message' => 'Jadwal tidak sesuai dengan resep'
-            ], 422);
-        }
-
-        $exists = DB::table('medication_consumption_logs')
             ->where('patient_id', $request->patient_id)
             ->where('schedule_id', $request->schedule_id)
             ->whereDate('log_date', $request->log_date)
-            ->exists();
+            ->first();
 
-        if ($exists) {
+        $payload = [
+            'input_by_user_id' => $request->input_by_user_id,
+            'status' => $request->status,
+            'checked_at' => $request->status === 'Diminum' ? now() : null,
+            'cancelled_at' => $request->status === 'Tidak Diminum' ? now() : null,
+            'note' => $request->note,
+            'validation_status' => 'Valid',
+            'updated_at' => now(),
+        ];
+
+        if ($existing) {
+            DB::table('medication_consumption_logs')
+                ->where('log_id', $existing->log_id)
+                ->update($payload);
+
             return response()->json([
-                'message' => 'Obat pada jadwal ini sudah dicatat hari ini'
-            ], 422);
+                'message' => 'Log konsumsi obat berhasil diperbarui',
+                'data' => [
+                    'log_id' => $existing->log_id,
+                    'is_update' => true,
+                ]
+            ], 200);
         }
 
-        DB::beginTransaction();
+        $logId = DB::table('medication_consumption_logs')->insertGetId(array_merge($payload, [
+            'prescription_id' => $request->prescription_id,
+            'patient_id' => $request->patient_id,
+            'schedule_id' => $request->schedule_id,
+            'log_date' => $request->log_date,
+            'created_at' => now(),
+        ]), 'log_id');
 
-        try {
-            $id = DB::table('medication_consumption_logs')->insertGetId([
-                'prescription_id' => $request->prescription_id,
-                'patient_id' => $request->patient_id,
-                'input_by_user_id' => $request->input_by_user_id,
-                'schedule_id' => $request->schedule_id,
-                'log_date' => $request->log_date,
-                'status' => $request->status,
-                'checked_at' => $request->status === 'Diminum' ? now() : null,
-                'cancelled_at' => $request->status === 'Dibatalkan' ? now() : null,
-                'note' => $request->note,
-                'validation_status' => 'Valid',
-                'created_at' => now(),
-                'updated_at' => now(),
-            ], 'log_id');
+        return response()->json([
+            'message' => 'Log konsumsi obat berhasil disimpan',
+            'data' => [
+                'log_id' => $logId,
+                'is_update' => false,
+            ]
+        ], 201);
+    }
 
-            DB::commit();
+    public function activePrescriptions($patientId)
+    {
+        $today = now()->toDateString();
 
-            return response()->json([
-                'message' => 'Log konsumsi obat berhasil ditambahkan',
-                'log_id' => $id
-            ], 201);
-        } catch (\Exception $e) {
-            DB::rollBack();
+        $data = DB::table('prescriptions as p')
+            ->join('medications as m', 'p.medication_id', '=', 'm.medication_id')
+            ->join('prescription_schedules as ps', 'p.prescription_id', '=', 'ps.prescription_id')
+            ->join('medication_sessions as ms', 'ps.session_id', '=', 'ms.session_id')
+            ->leftJoin('medication_consumption_logs as l', function ($join) use ($patientId, $today) {
+                $join->on('l.prescription_id', '=', 'p.prescription_id')
+                    ->on('l.schedule_id', '=', 'ps.schedule_id')
+                    ->where('l.patient_id', '=', $patientId)
+                    ->whereDate('l.log_date', '=', $today);
+            })
+            ->where('p.patient_id', $patientId)
+            ->where('p.status', 'Aktif')
+            ->where('ps.is_active', true)
+            ->whereDate('p.valid_from', '<=', $today)
+            ->whereDate('p.valid_until', '>=', $today)
+            ->select(
+                'p.prescription_id',
+                'ps.schedule_id',
+                'm.medication_name',
+                'm.description',
+                'p.dosage',
+                'p.form',
+                'p.meal_rule',
+                'p.notes',
+                'ms.session_id',
+                'ms.session_name',
+                'ms.start_time',
+                'ms.end_time',
+                'ms.default_reminder_time',
+                'ps.dose_per_session',
+                'ps.reminder_time',
+                'l.log_id',
+                'l.status as log_status',
+                'l.checked_at',
+                'l.cancelled_at',
+                'l.note as log_note',
+                DB::raw("CASE WHEN l.status = 'Diminum' THEN true ELSE false END as checked"),
+                DB::raw("CASE WHEN l.log_id IS NULL THEN false ELSE true END as already_logged")
+            )
+            ->orderByRaw('COALESCE(ps.reminder_time, ms.default_reminder_time)')
+            ->get();
 
-            return response()->json([
-                'message' => 'Gagal menyimpan log konsumsi obat',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+        return response()->json([
+            'message' => 'Resep aktif berhasil diambil',
+            'data' => $data
+        ]);
     }
 
     public function history($patientId)
@@ -390,16 +440,18 @@ class HealthController extends Controller
                 'activity' => DB::table('activity_records as ar')
                     ->leftJoin('users as iu', 'ar.input_by_user_id', '=', 'iu.user_id')
                     ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
+                    ->leftJoin('activity_types as at', 'ar.activity_type_id', '=', 'at.activity_type_id')
                     ->where('ar.patient_id', $patientId)
-                    ->select('ar.*', DB::raw("COALESCE(iu.full_name, '-') as input_by_name"), DB::raw($roleCase))
+                    ->select('ar.*', 'at.activity_name', DB::raw("COALESCE(iu.full_name, '-') as input_by_name"), DB::raw($roleCase))
                     ->orderByDesc('ar.activity_date')
                     ->get(),
 
                 'meal' => DB::table('meal_records as mr')
                     ->leftJoin('users as iu', 'mr.input_by_user_id', '=', 'iu.user_id')
                     ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
+                    ->leftJoin('meal_types as mt', 'mr.meal_type_id', '=', 'mt.meal_type_id')
                     ->where('mr.patient_id', $patientId)
-                    ->select('mr.*', DB::raw("COALESCE(iu.full_name, '-') as input_by_name"), DB::raw($roleCase))
+                    ->select('mr.*', 'mt.meal_type_name', DB::raw("COALESCE(iu.full_name, '-') as input_by_name"), DB::raw($roleCase))
                     ->orderByDesc('mr.meal_date')
                     ->get(),
 
@@ -407,14 +459,18 @@ class HealthController extends Controller
                     ->leftJoin('prescriptions as p', 'l.prescription_id', '=', 'p.prescription_id')
                     ->leftJoin('medications as m', 'p.medication_id', '=', 'm.medication_id')
                     ->leftJoin('prescription_schedules as ps', 'l.schedule_id', '=', 'ps.schedule_id')
+                    ->leftJoin('medication_sessions as ms', 'ps.session_id', '=', 'ms.session_id')
                     ->leftJoin('users as iu', 'l.input_by_user_id', '=', 'iu.user_id')
                     ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
                     ->where('l.patient_id', $patientId)
                     ->select(
                         'l.*',
                         'm.medication_name',
-                        'ps.session',
+                        'ms.session_name',
+                        'ms.start_time',
+                        'ms.end_time',
                         'ps.dose_per_session',
+                        DB::raw("COALESCE(ps.reminder_time, ms.default_reminder_time) as reminder_time"),
                         DB::raw("COALESCE(iu.full_name, '-') as input_by_name"),
                         DB::raw($roleCase)
                     )
@@ -470,36 +526,6 @@ class HealthController extends Controller
 
         return response()->json([
             'message' => 'Rekomendasi terbaru berhasil diambil',
-            'data' => $data
-        ]);
-    }
-
-    public function activePrescriptions($patientId)
-    {
-        $data = DB::table('prescriptions as p')
-            ->join('medications as m', 'p.medication_id', '=', 'm.medication_id')
-            ->join('prescription_schedules as ps', 'p.prescription_id', '=', 'ps.prescription_id')
-            ->where('p.patient_id', $patientId)
-            ->where('p.status', 'Aktif')
-            ->whereDate('p.valid_from', '<=', now())
-            ->whereDate('p.valid_until', '>=', now())
-            ->select(
-                'p.prescription_id',
-                'ps.schedule_id',
-                'm.medication_name',
-                'm.description',
-                'p.dosage',
-                'p.form',
-                'p.meal_rule',
-                'p.notes',
-                'ps.session',
-                'ps.dose_per_session'
-            )
-            ->orderBy('ps.session')
-            ->get();
-
-        return response()->json([
-            'message' => 'Resep aktif berhasil diambil',
             'data' => $data
         ]);
     }
@@ -566,10 +592,26 @@ class HealthController extends Controller
                 DB::raw("'Keluarga' as relation")
             );
 
+        $medication = DB::table('medication_consumption_logs as l')
+            ->join('users as u', 'l.input_by_user_id', '=', 'u.user_id')
+            ->where('l.patient_id', $patientId)
+            ->where('l.validation_status', 'Menunggu')
+            ->select(
+                DB::raw("'medication' as record_type"),
+                'l.log_id as record_id',
+                DB::raw("'Kepatuhan Obat' as title"),
+                'l.log_date as date',
+                DB::raw("l.status::TEXT as value"),
+                DB::raw("''::TEXT as unit"),
+                'u.full_name as input_by',
+                DB::raw("'Keluarga' as relation")
+            );
+
         $data = $glucose
             ->unionAll($physiological)
             ->unionAll($activity)
             ->unionAll($meal)
+            ->unionAll($medication)
             ->orderByDesc('date')
             ->get();
 
@@ -582,7 +624,7 @@ class HealthController extends Controller
     public function respondValidation(Request $request)
     {
         $request->validate([
-            'record_type' => 'required|in:glucose,physiological,activity,meal',
+            'record_type' => 'required|in:glucose,physiological,activity,meal,medication',
             'record_id' => 'required|integer',
             'status' => 'required|in:Valid,Ditolak',
         ]);
@@ -592,6 +634,7 @@ class HealthController extends Controller
             'physiological' => ['table' => 'physiological_records', 'id' => 'physiological_id'],
             'activity' => ['table' => 'activity_records', 'id' => 'activity_id'],
             'meal' => ['table' => 'meal_records', 'id' => 'meal_id'],
+            'medication' => ['table' => 'medication_consumption_logs', 'id' => 'log_id'],
         ];
 
         $target = $tableMap[$request->record_type];
@@ -610,25 +653,19 @@ class HealthController extends Controller
             ->where($target['id'], $request->record_id)
             ->update([
                 'validation_status' => $request->status,
+                'validated_at' => now(),
                 'updated_at' => now(),
             ]);
 
+        $this->notifyFamilyValidationResult($record, $request->record_type, $request->status);
+
         if ($request->status === 'Valid') {
             if ($request->record_type === 'glucose') {
-                $this->checkGlucoseAbnormal(
-                    $record->patient_id,
-                    $record->measurement_type,
-                    $record->glucose_value
-                );
+                $this->checkGlucoseAbnormal($record->patient_id, $record->measurement_type, $record->glucose_value);
             }
 
             if ($request->record_type === 'physiological') {
-                $this->checkPhysiologicalAbnormal(
-                    $record->patient_id,
-                    $record->systolic,
-                    $record->diastolic,
-                    $record->bmi
-                );
+                $this->checkPhysiologicalAbnormal($record->patient_id, $record->systolic, $record->diastolic, $record->bmi);
             }
         }
 

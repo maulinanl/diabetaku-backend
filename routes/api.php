@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\Doctor\ProfileController as DoctorProfileController
 use App\Http\Controllers\Api\Doctor\ClinicalNoteController as DoctorClinicalNoteController;
 use App\Http\Controllers\Api\Doctor\RecommendationController as DoctorRecommendationController;
 use App\Http\Controllers\Api\Doctor\HistoryController as DoctorHistoryController;
+use App\Http\Controllers\Api\Doctor\PrescriptionController;
 use App\Http\Controllers\Api\Patient\ProfileController as PatientProfileController;
 use App\Http\Controllers\Api\Patient\HealthController as PatientHealthController;
 use App\Http\Controllers\Api\Patient\ConnectionController as PatientConnectionController;
@@ -25,6 +26,7 @@ Route::prefix('auth')->group(function () {
     Route::post('/register/patient', [AuthController::class, 'registerPatient']);
     Route::post('/register/family', [AuthController::class, 'registerFamily']);
     Route::post('/login', [AuthController::class, 'login']);
+    Route::get('/check-email', [AuthController::class, 'checkEmail']);
 
     Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
     Route::post('/reset-password', [AuthController::class, 'resetPassword']);
@@ -49,6 +51,7 @@ Route::prefix('master')->group(function () {
     Route::get('/rhesus-types', [MasterDataController::class, 'rhesusTypes']);
     Route::get('/relation-types', [MasterDataController::class, 'relationTypes']);
     Route::get('/clinical-parameters', [MasterDataController::class, 'clinicalParameters']);
+    Route::get('/prescription-meal-rules', [MasterDataController::class, 'prescriptionMealRules']);
 });
 
 Route::prefix('doctor')->group(function () {
@@ -85,6 +88,17 @@ Route::prefix('doctor')->group(function () {
     Route::get('/connections/status/{patientId}', [DoctorPatientController::class, 'connectionStatus']);
 
     Route::get('/history/{doctorId}', [DoctorHistoryController::class, 'index']);
+
+    Route::get('/medications/search', [PrescriptionController::class, 'searchMedications']);
+    Route::get('/medication-sessions', [PrescriptionController::class, 'sessions']);
+
+    Route::get('/patients/{patientId}/prescriptions/active', [PrescriptionController::class, 'active']);
+    Route::get('/patients/{patientId}/prescriptions/history', [PrescriptionController::class, 'history']);
+    Route::post('/patients/{patientId}/prescriptions', [PrescriptionController::class, 'store']);
+
+    Route::get('/prescriptions/{prescriptionId}', [PrescriptionController::class, 'show']);
+    Route::put('/prescriptions/{prescriptionId}', [PrescriptionController::class, 'update']);
+    Route::patch('/prescriptions/{prescriptionId}/stop', [PrescriptionController::class, 'stop']);
 });
 
 Route::prefix('patient')->group(function () {
@@ -131,7 +145,7 @@ Route::prefix('family')->group(function () {
     Route::get('/patients/{patientId}/clinical-notes', [FamilyPatientController::class, 'clinicalNotes']);
     Route::get('/patients/{patientId}/histories', [FamilyPatientController::class, 'histories']);
     Route::get('/patients/{patientId}/recommendations', [FamilyPatientController::class, 'recommendations']);
-    
+
     Route::post('/find-patient', [FamilyPatientController::class, 'findPatient']);
     Route::post('/request-connection', [FamilyPatientController::class, 'requestConnection']);
     Route::delete('/patients/{patientId}/disconnect', [FamilyPatientController::class, 'disconnect']);

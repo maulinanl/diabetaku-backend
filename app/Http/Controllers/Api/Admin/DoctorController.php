@@ -16,11 +16,10 @@ class DoctorController extends Controller
             ->where('d.verification_status', 'Menunggu')
             ->select(
                 'd.doctor_id',
-                'u.user_id',
                 'u.full_name',
                 'u.email',
                 'u.phone_number',
-                'u.email_verified_at',
+                'u.gender',
                 's.specialization_name',
                 'd.str_number',
                 'd.institution',
@@ -31,89 +30,54 @@ class DoctorController extends Controller
             ->get();
 
         return response()->json([
-            'message' => 'Data dokter menunggu verifikasi berhasil diambil',
-            'data' => $data,
+            'message' => 'Daftar dokter menunggu verifikasi berhasil diambil',
+            'data' => $data
         ]);
     }
 
-    public function verify(Request $request, $doctorId)
+    public function verify($doctorId)
     {
-        $request->validate([
-            'admin_id' => 'required|exists:admins,admin_id',
-        ]);
-
-        $doctor = DB::table('doctors')
-            ->where('doctor_id', $doctorId)
-            ->first();
+        $doctor = DB::table('doctors')->where('doctor_id', $doctorId)->first();
 
         if (!$doctor) {
-            return response()->json([
-                'message' => 'Data dokter tidak ditemukan',
-            ], 404);
+            return response()->json(['message' => 'Dokter tidak ditemukan'], 404);
         }
 
-        DB::transaction(function () use ($request, $doctor, $doctorId) {
-            DB::table('doctors')
-                ->where('doctor_id', $doctorId)
-                ->update([
-                    'verification_status' => 'Disetujui',
-                    'verified_by_admin_id' => $request->admin_id,
-                    'verified_at' => now(),
-                    'rejection_reason' => null,
-                    'updated_at' => now(),
-                ]);
+        DB::table('doctors')->where('doctor_id', $doctorId)->update([
+            'verification_status' => 'Diverifikasi',
+            'updated_at' => now(),
+        ]);
 
-            DB::table('users')
-                ->where('user_id', $doctor->user_id)
-                ->update([
-                    'account_status' => 'Aktif',
-                    'updated_at' => now(),
-                ]);
-        });
+        DB::table('users')->where('user_id', $doctor->user_id)->update([
+            'account_status' => 'Aktif',
+            'updated_at' => now(),
+        ]);
 
         return response()->json([
-            'message' => 'Dokter berhasil diverifikasi',
+            'message' => 'Dokter berhasil diverifikasi'
         ]);
     }
 
-    public function reject(Request $request, $doctorId)
+    public function reject($doctorId)
     {
-        $request->validate([
-            'admin_id' => 'required|exists:admins,admin_id',
-            'rejection_reason' => 'required|string|max:255',
-        ]);
-
-        $doctor = DB::table('doctors')
-            ->where('doctor_id', $doctorId)
-            ->first();
+        $doctor = DB::table('doctors')->where('doctor_id', $doctorId)->first();
 
         if (!$doctor) {
-            return response()->json([
-                'message' => 'Data dokter tidak ditemukan',
-            ], 404);
+            return response()->json(['message' => 'Dokter tidak ditemukan'], 404);
         }
 
-        DB::transaction(function () use ($request, $doctor, $doctorId) {
-            DB::table('doctors')
-                ->where('doctor_id', $doctorId)
-                ->update([
-                    'verification_status' => 'Ditolak',
-                    'verified_by_admin_id' => $request->admin_id,
-                    'verified_at' => now(),
-                    'rejection_reason' => $request->rejection_reason,
-                    'updated_at' => now(),
-                ]);
+        DB::table('doctors')->where('doctor_id', $doctorId)->update([
+            'verification_status' => 'Ditolak',
+            'updated_at' => now(),
+        ]);
 
-            DB::table('users')
-                ->where('user_id', $doctor->user_id)
-                ->update([
-                    'account_status' => 'Tidak Aktif',
-                    'updated_at' => now(),
-                ]);
-        });
+        DB::table('users')->where('user_id', $doctor->user_id)->update([
+            'account_status' => 'Nonaktif',
+            'updated_at' => now(),
+        ]);
 
         return response()->json([
-            'message' => 'Registrasi dokter berhasil ditolak',
+            'message' => 'Dokter berhasil ditolak'
         ]);
     }
 }

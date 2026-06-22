@@ -10,7 +10,7 @@ class PatientController extends Controller
 {
     private function createNotification($userId, $typeId, $title, $message, $referenceId = null, $referenceType = null)
     {
-        if (!$userId) return;
+        if (!$userId || !$typeId) return;
 
         DB::table('notifications')->insert([
             'user_id' => $userId,
@@ -23,6 +23,14 @@ class PatientController extends Controller
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+    }
+
+    private function getPatientName($patientId)
+    {
+        return DB::table('patients as p')
+            ->join('users as u', 'p.user_id', '=', 'u.user_id')
+            ->where('p.patient_id', $patientId)
+            ->value('u.full_name') ?? 'Pasien';
     }
 
     public function findPatient(Request $request)
@@ -51,6 +59,7 @@ class PatientController extends Controller
             ->get();
 
         return response()->json([
+            'message' => 'Data pasien berhasil dicari',
             'data' => $patients,
         ]);
     }
@@ -149,6 +158,7 @@ class PatientController extends Controller
                 'fpr.status',
                 'fpr.connected_at'
             )
+            ->orderBy('u.full_name')
             ->get();
 
         return response()->json([
@@ -162,8 +172,21 @@ class PatientController extends Controller
         $profile = DB::table('patients as p')
             ->join('users as u', 'p.user_id', '=', 'u.user_id')
             ->where('p.patient_id', $patientId)
-            ->select('p.*', 'u.full_name', 'u.email', 'u.phone_number', 'u.gender', 'u.date_of_birth')
+            ->select(
+                'p.*',
+                'u.full_name',
+                'u.email',
+                'u.phone_number',
+                'u.gender',
+                'u.date_of_birth'
+            )
             ->first();
+
+        if (!$profile) {
+            return response()->json([
+                'message' => 'Data pasien tidak ditemukan'
+            ], 404);
+        }
 
         return response()->json([
             'message' => 'Dashboard pasien berhasil diambil',
@@ -171,10 +194,12 @@ class PatientController extends Controller
                 'profile' => $profile,
                 'latest_glucose' => DB::table('glucose_records')
                     ->where('patient_id', $patientId)
+                    ->where('validation_status', 'Valid')
                     ->orderByDesc('measured_at')
                     ->first(),
                 'latest_physiological' => DB::table('physiological_records')
                     ->where('patient_id', $patientId)
+                    ->where('validation_status', 'Valid')
                     ->orderByDesc('measured_at')
                     ->first(),
             ]
@@ -186,11 +211,30 @@ class PatientController extends Controller
         return response()->json([
             'message' => 'Data kesehatan pasien berhasil diambil',
             'data' => [
-                'glucose' => DB::table('glucose_records')->where('patient_id', $patientId)->orderByDesc('measured_at')->get(),
-                'physiological' => DB::table('physiological_records')->where('patient_id', $patientId)->orderByDesc('measured_at')->get(),
-                'activity' => DB::table('activity_records')->where('patient_id', $patientId)->orderByDesc('activity_date')->get(),
-                'meal' => DB::table('meal_records')->where('patient_id', $patientId)->orderByDesc('meal_date')->get(),
-                'medication' => DB::table('medication_consumption_logs')->where('patient_id', $patientId)->orderByDesc('log_date')->get(),
+                'glucose' => DB::table('glucose_records')
+                    ->where('patient_id', $patientId)
+                    ->orderByDesc('measured_at')
+                    ->get(),
+
+                'physiological' => DB::table('physiological_records')
+                    ->where('patient_id', $patientId)
+                    ->orderByDesc('measured_at')
+                    ->get(),
+
+                'activity' => DB::table('activity_records')
+                    ->where('patient_id', $patientId)
+                    ->orderByDesc('activity_date')
+                    ->get(),
+
+                'meal' => DB::table('meal_records')
+                    ->where('patient_id', $patientId)
+                    ->orderByDesc('meal_date')
+                    ->get(),
+
+                'medication' => DB::table('medication_consumption_logs')
+                    ->where('patient_id', $patientId)
+                    ->orderByDesc('log_date')
+                    ->get(),
             ]
         ]);
     }
@@ -255,7 +299,7 @@ class PatientController extends Controller
                 DB::raw("COALESCE(gr.validation_status::text, 'Valid') as status"),
                 DB::raw("COALESCE(iu.full_name, '-') as input_by_name"),
                 DB::raw($roleCase),
-                'gr.measured_at as sort_date'
+                DB::raw("gr.measured_at as sort_date")
             );
 
         $physiological = DB::table('physiological_records as pr')
@@ -271,7 +315,7 @@ class PatientController extends Controller
                 DB::raw("COALESCE(pr.validation_status::text, 'Valid') as status"),
                 DB::raw("COALESCE(iu.full_name, '-') as input_by_name"),
                 DB::raw($roleCase),
-                'pr.measured_at as sort_date'
+                DB::raw("pr.measured_at as sort_date")
             );
 
         $activity = DB::table('activity_records as ar')
@@ -288,7 +332,7 @@ class PatientController extends Controller
                 DB::raw("COALESCE(ar.validation_status::text, 'Valid') as status"),
                 DB::raw("COALESCE(iu.full_name, '-') as input_by_name"),
                 DB::raw($roleCase),
-                'ar.activity_date as sort_date'
+                DB::raw("ar.activity_date as sort_date")
             );
 
         $meal = DB::table('meal_records as mr')
@@ -300,28 +344,30 @@ class PatientController extends Controller
                 DB::raw("'Makan' as type"),
                 DB::raw("COALESCE(mt.meal_type_name, 'Pola Makan') as title"),
                 DB::raw("TO_CHAR(mr.meal_date, 'DD Mon') as time"),
-                DB::raw("COALESCE(mr.calories::text, '') as value"),
+                DB::raw("COALESCE(mr.calories::text, '-') as value"),
                 DB::raw("'kkal' as unit"),
                 DB::raw("COALESCE(mr.validation_status::text, 'Valid') as status"),
                 DB::raw("COALESCE(iu.full_name, '-') as input_by_name"),
                 DB::raw($roleCase),
-                'mr.meal_date as sort_date'
+                DB::raw("mr.meal_date as sort_date")
             );
 
-        $medication = DB::table('medication_consumption_logs as mcl')
-            ->leftJoin('users as iu', 'mcl.input_by_user_id', '=', 'iu.user_id')
+        $medication = DB::table('medication_consumption_logs as l')
+            ->leftJoin('prescriptions as p', 'l.prescription_id', '=', 'p.prescription_id')
+            ->leftJoin('medications as m', 'p.medication_id', '=', 'm.medication_id')
+            ->leftJoin('users as iu', 'l.input_by_user_id', '=', 'iu.user_id')
             ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
-            ->where('mcl.patient_id', $patientId)
+            ->where('l.patient_id', $patientId)
             ->select(
                 DB::raw("'Obat' as type"),
-                DB::raw("'Kepatuhan Obat' as title"),
-                DB::raw("TO_CHAR(mcl.log_date, 'DD Mon') as time"),
-                DB::raw("mcl.status::text as value"),
+                DB::raw("COALESCE(m.medication_name, 'Kepatuhan Obat') as title"),
+                DB::raw("TO_CHAR(l.log_date, 'DD Mon') as time"),
+                DB::raw("l.status::text as value"),
                 DB::raw("'' as unit"),
-                DB::raw("COALESCE(mcl.validation_status::text, 'Valid') as status"),
+                DB::raw("COALESCE(l.validation_status::text, 'Valid') as status"),
                 DB::raw("COALESCE(iu.full_name, '-') as input_by_name"),
                 DB::raw($roleCase),
-                'mcl.log_date as sort_date'
+                DB::raw("l.log_date as sort_date")
             );
 
         $data = $glucose
@@ -348,7 +394,7 @@ class PatientController extends Controller
         ]);
 
         return DB::transaction(function () use ($patientId, $request) {
-            DB::table('family_patient_relations')
+            $updated = DB::table('family_patient_relations')
                 ->where('family_id', $request->family_id)
                 ->where('patient_id', $patientId)
                 ->where('status', 'Diterima')
@@ -356,6 +402,12 @@ class PatientController extends Controller
                     'status' => 'Diputus',
                     'updated_at' => now(),
                 ]);
+
+            if ($updated === 0) {
+                return response()->json([
+                    'message' => 'Relasi keluarga dan pasien tidak ditemukan atau sudah diputus'
+                ], 404);
+            }
 
             $patientUserId = DB::table('patients')
                 ->where('patient_id', $patientId)

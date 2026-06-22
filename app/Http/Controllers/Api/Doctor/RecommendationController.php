@@ -31,6 +31,27 @@ class RecommendationController extends Controller
         ]);
     }
 
+    private function getRecipientRole($userId)
+    {
+        $isPatient = DB::table('patients')
+            ->where('user_id', $userId)
+            ->exists();
+
+        if ($isPatient) {
+            return 'Pasien';
+        }
+
+        $isFamily = DB::table('families')
+            ->where('user_id', $userId)
+            ->exists();
+
+        if ($isFamily) {
+            return 'Keluarga';
+        }
+
+        return 'Penerima';
+    }
+
     public function store(Request $request, $clinicalNoteId)
     {
         $request->validate([
@@ -103,11 +124,17 @@ class RecommendationController extends Controller
             }
 
             foreach ($request->recipient_user_ids as $userId) {
+                $role = $this->getRecipientRole($userId);
+
+                $message = $role === 'Keluarga'
+                    ? 'Dr. ' . $clinicalNote->doctor_name . ' mengirim rekomendasi baru untuk ' . $clinicalNote->patient_name . '.'
+                    : 'Dr. ' . $clinicalNote->doctor_name . ' mengirim rekomendasi baru untuk Anda.';
+
                 $this->createNotification(
                     $userId,
                     $notificationTypeId,
                     'Rekomendasi Dokter',
-                    'Dr. ' . $clinicalNote->doctor_name . ' mengirim rekomendasi baru untuk Anda.',
+                    $message,
                     $clinicalNoteId,
                     'recommendation'
                 );

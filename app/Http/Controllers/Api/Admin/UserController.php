@@ -11,22 +11,22 @@ class UserController extends Controller
     public function index()
     {
         $data = DB::table('users as u')
-            ->join('roles as r', 'u.role_id', '=', 'r.role_id')
+            ->leftJoin('roles as r', 'u.role_id', '=', 'r.role_id')
             ->select(
                 'u.user_id',
-                'r.role_name',
                 'u.full_name',
                 'u.email',
                 'u.phone_number',
                 'u.gender',
                 'u.account_status',
+                'r.role_name',
                 'u.created_at'
             )
             ->orderByDesc('u.created_at')
             ->get();
 
         return response()->json([
-            'message' => 'Data pengguna berhasil diambil',
+            'message' => 'Daftar pengguna berhasil diambil',
             'data' => $data
         ]);
     }
@@ -34,7 +34,7 @@ class UserController extends Controller
     public function updateStatus(Request $request, $userId)
     {
         $request->validate([
-            'account_status' => 'required|in:Menunggu Verifikasi,Aktif,Tidak Aktif,Terkunci',
+            'account_status' => 'required|in:Aktif,Nonaktif,Diblokir',
         ]);
 
         $updated = DB::table('users')
@@ -44,10 +44,8 @@ class UserController extends Controller
                 'updated_at' => now(),
             ]);
 
-        if (!$updated) {
-            return response()->json([
-                'message' => 'Data pengguna tidak ditemukan'
-            ], 404);
+        if ($updated === 0) {
+            return response()->json(['message' => 'User tidak ditemukan'], 404);
         }
 
         return response()->json([
@@ -57,19 +55,16 @@ class UserController extends Controller
 
     public function dashboard()
     {
-        $data = [
-            'total_users' => DB::table('users')->count(),
-            'total_doctors' => DB::table('doctors')->count(),
-            'total_patients' => DB::table('patients')->count(),
-            'total_families' => DB::table('families')->count(),
-            'pending_doctors' => DB::table('doctors')
-                ->where('verification_status', 'Menunggu')
-                ->count(),
-        ];
-
         return response()->json([
             'message' => 'Dashboard admin berhasil diambil',
-            'data' => $data
+            'data' => [
+                'total_users' => DB::table('users')->count(),
+                'total_patients' => DB::table('patients')->count(),
+                'total_doctors' => DB::table('doctors')->count(),
+                'pending_doctors' => DB::table('doctors')
+                    ->where('verification_status', 'Menunggu')
+                    ->count(),
+            ]
         ]);
     }
 }
