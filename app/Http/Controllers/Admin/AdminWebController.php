@@ -226,6 +226,7 @@ class AdminWebController extends Controller
     {
         $users = DB::table('users as u')
             ->leftJoin('roles as r', 'u.role_id', '=', 'r.role_id')
+            ->leftJoin('doctors as d', 'u.user_id', '=', 'd.user_id')
             ->select(
                 'u.user_id',
                 'u.full_name',
@@ -233,7 +234,9 @@ class AdminWebController extends Controller
                 'u.phone_number',
                 'u.gender',
                 'u.account_status',
+                'u.email_verified_at',
                 'r.role_name',
+                'd.verification_status as doctor_verification_status',
                 'u.created_at'
             )
             ->orderByDesc('u.created_at')

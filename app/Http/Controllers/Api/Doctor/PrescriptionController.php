@@ -52,38 +52,44 @@ class PrescriptionController extends Controller
         ]);
     }
 
-    private function notifyPrescriptionChanged($patientId, $prescriptionId, $title, $message)
-    {
-        $patientUserId = DB::table('patients')
-            ->where('patient_id', $patientId)
-            ->value('user_id');
+    private function notifyPrescriptionChanged(
+    $patientId,
+    $prescriptionId,
+    $title,
+    $patientMessage,
+    $familyMessage = null
+)
+{
+    $patientUserId = DB::table('patients')
+        ->where('patient_id', $patientId)
+        ->value('user_id');
 
+    $this->createNotification(
+        $patientUserId,
+        'Pengingat Obat',
+        $title,
+        $patientMessage,
+        $prescriptionId,
+        'prescription'
+    );
+
+    $familyUserIds = DB::table('family_patient_relations as fpr')
+        ->join('families as f', 'fpr.family_id', '=', 'f.family_id')
+        ->where('fpr.patient_id', $patientId)
+        ->where('fpr.status', 'Diterima')
+        ->pluck('f.user_id');
+
+    foreach ($familyUserIds as $userId) {
         $this->createNotification(
-            $patientUserId,
+            $userId,
             'Pengingat Obat',
             $title,
-            $message,
+            $familyMessage ?? $patientMessage,
             $prescriptionId,
             'prescription'
         );
-
-        $familyUserIds = DB::table('family_patient_relations as fpr')
-            ->join('families as f', 'fpr.family_id', '=', 'f.family_id')
-            ->where('fpr.patient_id', $patientId)
-            ->where('fpr.status', 'Diterima')
-            ->pluck('f.user_id');
-
-        foreach ($familyUserIds as $userId) {
-            $this->createNotification(
-                $userId,
-                'Pengingat Obat',
-                $title,
-                $message,
-                $prescriptionId,
-                'prescription'
-            );
-        }
     }
+}
 
     public function searchMedications(Request $request)
     {
@@ -304,11 +310,19 @@ class PrescriptionController extends Controller
                 ->where('medication_id', $request->medication_id)
                 ->value('medication_name');
 
+            $patientName = DB::table('patients as p')
+                ->join('users as u', 'p.user_id', '=', 'u.user_id')
+                ->where('p.patient_id', $patientId)
+                ->value('u.full_name');
+
             $this->notifyPrescriptionChanged(
                 $patientId,
                 $prescriptionId,
                 'Resep Obat Baru',
-                "Dokter menambahkan resep {$medicationName}. Silakan cek jadwal minum obat Anda."
+
+                "Dokter menambahkan resep {$medicationName}. Silakan cek jadwal minum obat Anda.",
+
+                "Dokter menambahkan resep {$medicationName} untuk {$patientName}. Mohon bantu memantau jadwal minum obat pasien."
             );
 
             return response()->json([
@@ -405,7 +419,10 @@ class PrescriptionController extends Controller
                 $request->patient_id,
                 $newPrescriptionId,
                 'Resep Obat Diperbarui',
-                "Dokter memperbarui resep {$medicationName}. Silakan cek jadwal minum obat terbaru."
+
+                "Dokter memperbarui resep {$medicationName}. Silakan cek jadwal minum obat terbaru.",
+
+                "Dokter memperbarui resep {$medicationName} untuk {$patientName}. Mohon bantu memantau jadwal minum obat pasien."
             );
 
             return response()->json([
@@ -462,7 +479,10 @@ class PrescriptionController extends Controller
                 $prescription->patient_id,
                 $prescriptionId,
                 'Resep Obat Dihentikan',
-                "Dokter menghentikan resep {$prescription->medication_name}."
+
+                "Dokter menghentikan resep {$prescription->medication_name}.",
+
+                "Dokter menghentikan resep {$prescription->medication_name} untuk {$patientName}."
             );
 
             return response()->json([
