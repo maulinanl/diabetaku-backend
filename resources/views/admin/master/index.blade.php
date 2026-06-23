@@ -53,64 +53,75 @@
             Daftar {{ $config['title'] }}
         </h3>
 
-        <table>
-            <thead>
-                <tr>
-                    <th>ID</th>
-
-                    @foreach($config['fields'] as $field => $label)
-                        <th>{{ $label }}</th>
-                    @endforeach
-
-                    <th>Aksi</th>
-                </tr>
-            </thead>
-
-            <tbody>
-                @forelse($items as $item)
+        <div class="table-responsive">
+            <table>
+                <thead>
                     <tr>
-                        <form method="POST"
-                            action="{{ route('admin.web.master.update', [$type, $item->{$config['primary_key']}]) }}">
-                            @csrf
+                        <th>ID</th>
 
-                            <td>{{ $item->{$config['primary_key']} }}</td>
+                        @foreach($config['fields'] as $field => $label)
+                            <th>{{ $label }}</th>
+                        @endforeach
 
-                            @foreach($config['fields'] as $field => $label)
-                                <td>
-                                    <input
-                                        type="{{ str_contains($field, 'time') ? 'time' : 'text' }}"
-                                        name="{{ $field }}"
-                                        value="{{ $item->{$field} }}"
-                                        style="width:100%; padding:8px; border:1px solid var(--light); border-radius:8px;">
-                                </td>
-                            @endforeach
+                        <th>Aksi</th>
+                    </tr>
+                </thead>
 
-                            <td style="white-space:nowrap;">
-                                <button type="submit" class="btn btn-primary">
-                                    Simpan
+                <tbody>
+                    @forelse($items as $item)
+                        @php
+                            $primaryKey = $config['primary_key'];
+                            $itemId = data_get($item, $primaryKey);
+                        @endphp
+
+                        <tr>
+                            <form method="POST"
+                                action="{{ route('admin.web.master.update', [$type, $itemId]) }}">
+                                @csrf
+
+                                <td>{{ $itemId }}</td>
+
+                                @foreach($config['fields'] as $field => $label)
+                                    @php
+                                        $value = data_get($item, $field, '');
+                                    @endphp
+
+                                    <td>
+                                        <input
+                                            type="{{ str_contains($field, 'time') ? 'time' : 'text' }}"
+                                            name="{{ $field }}"
+                                            value="{{ old($field, $value) }}"
+                                            style="width:100%; padding:8px; border:1px solid var(--light); border-radius:8px;">
+                                    </td>
+                                @endforeach
+
+                                <td style="white-space:nowrap;">
+                                    <button type="submit" class="btn btn-primary">
+                                        Simpan
+                                    </button>
+                            </form>
+
+                            <form method="POST"
+                                action="{{ route('admin.web.master.delete', [$type, $itemId]) }}"
+                                style="display:inline;"
+                                onsubmit="return confirm('Yakin ingin menghapus data ini?')">
+                                @csrf
+
+                                <button type="submit" class="btn btn-danger">
+                                    Hapus
                                 </button>
-                        </form>
-
-                        <form method="POST"
-                            action="{{ route('admin.web.master.delete', [$type, $item->{$config['primary_key']}]) }}"
-                            style="display:inline;"
-                            onsubmit="return confirm('Yakin ingin menghapus data ini?')">
-                            @csrf
-
-                            <button type="submit" class="btn btn-danger">
-                                Hapus
-                            </button>
-                        </form>
+                            </form>
+                                </td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="{{ count($config['fields']) + 2 }}">
+                                Belum ada data.
                             </td>
-                    </tr>
-                @empty
-                    <tr>
-                        <td colspan="{{ count($config['fields']) + 2 }}">
-                            Belum ada data.
-                        </td>
-                    </tr>
-                @endforelse
-            </tbody>
-        </table>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
     </div>
 @endsection

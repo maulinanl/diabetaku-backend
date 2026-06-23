@@ -140,6 +140,8 @@ Route::prefix('family')->group(function () {
     Route::put('/profile/{familyId}', [FamilyProfileController::class, 'update']);
 
     Route::get('/patients/{familyId}', [FamilyPatientController::class, 'patients']);
+    Route::get('/patient-detail/{patientId}', [FamilyPatientController::class, 'show']);
+
     Route::get('/patients/{patientId}/dashboard', [FamilyPatientController::class, 'dashboard']);
     Route::get('/patients/{patientId}/health-data', [FamilyPatientController::class, 'healthData']);
     Route::get('/patients/{patientId}/clinical-notes', [FamilyPatientController::class, 'clinicalNotes']);

@@ -290,100 +290,85 @@ class PatientController extends Controller
             ->leftJoin('users as iu', 'gr.input_by_user_id', '=', 'iu.user_id')
             ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
             ->where('gr.patient_id', $patientId)
+            ->orderByDesc('gr.measured_at')
             ->select(
-                DB::raw("'Glukosa' as type"),
-                DB::raw("CONCAT('Glukosa ', gr.measurement_type) as title"),
-                DB::raw("TO_CHAR(gr.measured_at, 'DD Mon • HH24:MI') as time"),
-                DB::raw("gr.glucose_value::text as value"),
-                DB::raw("'mg/dL' as unit"),
-                DB::raw("COALESCE(gr.validation_status::text, 'Valid') as status"),
+                'gr.*',
                 DB::raw("COALESCE(iu.full_name, '-') as input_by_name"),
-                DB::raw($roleCase),
-                DB::raw("gr.measured_at as sort_date")
-            );
+                DB::raw($roleCase)
+            )
+            ->get();
 
         $physiological = DB::table('physiological_records as pr')
             ->leftJoin('users as iu', 'pr.input_by_user_id', '=', 'iu.user_id')
             ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
             ->where('pr.patient_id', $patientId)
+            ->orderByDesc('pr.measured_at')
             ->select(
-                DB::raw("'Fisiologis' as type"),
-                DB::raw("'Tekanan Darah' as title"),
-                DB::raw("TO_CHAR(pr.measured_at, 'DD Mon • HH24:MI') as time"),
-                DB::raw("CONCAT(COALESCE(pr.systolic::text, '-'), '/', COALESCE(pr.diastolic::text, '-')) as value"),
-                DB::raw("'mmHg' as unit"),
-                DB::raw("COALESCE(pr.validation_status::text, 'Valid') as status"),
+                'pr.*',
                 DB::raw("COALESCE(iu.full_name, '-') as input_by_name"),
-                DB::raw($roleCase),
-                DB::raw("pr.measured_at as sort_date")
-            );
+                DB::raw($roleCase)
+            )
+            ->get();
 
         $activity = DB::table('activity_records as ar')
             ->leftJoin('activity_types as at', 'ar.activity_type_id', '=', 'at.activity_type_id')
             ->leftJoin('users as iu', 'ar.input_by_user_id', '=', 'iu.user_id')
             ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
             ->where('ar.patient_id', $patientId)
+            ->orderByDesc('ar.activity_date')
             ->select(
-                DB::raw("'Aktivitas' as type"),
-                DB::raw("COALESCE(at.activity_name, 'Aktivitas Fisik') as title"),
-                DB::raw("TO_CHAR(ar.activity_date, 'DD Mon') as time"),
-                DB::raw("ar.duration_minutes::text as value"),
-                DB::raw("'menit' as unit"),
-                DB::raw("COALESCE(ar.validation_status::text, 'Valid') as status"),
+                'ar.*',
+                DB::raw("COALESCE(at.activity_name, 'Aktivitas Fisik') as activity_name"),
                 DB::raw("COALESCE(iu.full_name, '-') as input_by_name"),
-                DB::raw($roleCase),
-                DB::raw("ar.activity_date as sort_date")
-            );
+                DB::raw($roleCase)
+            )
+            ->get();
 
         $meal = DB::table('meal_records as mr')
             ->leftJoin('meal_types as mt', 'mr.meal_type_id', '=', 'mt.meal_type_id')
             ->leftJoin('users as iu', 'mr.input_by_user_id', '=', 'iu.user_id')
             ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
             ->where('mr.patient_id', $patientId)
+            ->orderByDesc('mr.meal_date')
             ->select(
-                DB::raw("'Makan' as type"),
-                DB::raw("COALESCE(mt.meal_type_name, 'Pola Makan') as title"),
-                DB::raw("TO_CHAR(mr.meal_date, 'DD Mon') as time"),
-                DB::raw("COALESCE(mr.calories::text, '-') as value"),
-                DB::raw("'kkal' as unit"),
-                DB::raw("COALESCE(mr.validation_status::text, 'Valid') as status"),
+                'mr.*',
+                DB::raw("COALESCE(mt.meal_type_name, 'Pola Makan') as meal_type_name"),
                 DB::raw("COALESCE(iu.full_name, '-') as input_by_name"),
-                DB::raw($roleCase),
-                DB::raw("mr.meal_date as sort_date")
-            );
+                DB::raw($roleCase)
+            )
+            ->get();
 
         $medication = DB::table('medication_consumption_logs as l')
             ->leftJoin('prescriptions as p', 'l.prescription_id', '=', 'p.prescription_id')
             ->leftJoin('medications as m', 'p.medication_id', '=', 'm.medication_id')
+            ->leftJoin('prescription_schedules as ps', 'l.schedule_id', '=', 'ps.schedule_id')
+            ->leftJoin('medication_sessions as ms', 'ps.session_id', '=', 'ms.session_id')
+            ->leftJoin('doctors as d', 'p.doctor_id', '=', 'd.doctor_id')
+            ->leftJoin('users as du', 'd.user_id', '=', 'du.user_id')
             ->leftJoin('users as iu', 'l.input_by_user_id', '=', 'iu.user_id')
             ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
             ->where('l.patient_id', $patientId)
+            ->orderByDesc('l.log_date')
             ->select(
-                DB::raw("'Obat' as type"),
-                DB::raw("COALESCE(m.medication_name, 'Kepatuhan Obat') as title"),
-                DB::raw("TO_CHAR(l.log_date, 'DD Mon') as time"),
-                DB::raw("l.status::text as value"),
-                DB::raw("'' as unit"),
-                DB::raw("COALESCE(l.validation_status::text, 'Valid') as status"),
+                'l.*',
+                DB::raw("COALESCE(m.medication_name, 'Obat') as medication_name"),
+                DB::raw("COALESCE(du.full_name, '-') as doctor_name"),
+                DB::raw("COALESCE(ms.session_name, ps.session_id::text, '-') as session"),
+                DB::raw("COALESCE(ps.dose_per_session::text, '-') as dose_per_session"),
                 DB::raw("COALESCE(iu.full_name, '-') as input_by_name"),
-                DB::raw($roleCase),
-                DB::raw("l.log_date as sort_date")
-            );
-
-        $data = $glucose
-            ->unionAll($physiological)
-            ->unionAll($activity)
-            ->unionAll($meal)
-            ->unionAll($medication);
-
-        $histories = DB::query()
-            ->fromSub($data, 'histories')
-            ->orderByDesc('sort_date')
+                DB::raw($roleCase)
+            )
             ->get();
 
         return response()->json([
             'message' => 'Riwayat pasien berhasil diambil',
-            'data' => $histories
+            'data' => [
+                'glucose' => $glucose,
+                'physiological' => $physiological,
+                'activity' => $activity,
+                'meal' => $meal,
+                'medication' => $medication,
+            ],
         ]);
     }
 
@@ -431,5 +416,37 @@ class PatientController extends Controller
                 'message' => 'Relasi keluarga dan pasien berhasil diputus'
             ]);
         });
+    }
+
+    public function show($patientId)
+    {
+        $patient = DB::table('patients as p')
+            ->join('users as u', 'p.user_id', '=', 'u.user_id')
+            ->leftJoin('blood_types as bt', 'p.blood_type_id', '=', 'bt.blood_type_id')
+            ->leftJoin('rhesus_types as rt', 'p.rhesus_type_id', '=', 'rt.rhesus_type_id')
+            ->where('p.patient_id', $patientId)
+            ->select(
+                'p.patient_id',
+                'u.full_name',
+                'u.gender',
+                'u.date_of_birth',
+                'p.diabetes_type',
+                'p.diagnosis_date',
+                'p.height_cm',
+                'bt.blood_type',
+                'rt.rhesus_type'
+            )
+            ->first();
+
+        if (!$patient) {
+            return response()->json([
+                'message' => 'Pasien tidak ditemukan',
+            ], 404);
+        }
+
+        return response()->json([
+            'message' => 'Detail pasien berhasil diambil',
+            'data' => $patient,
+        ]);
     }
 }

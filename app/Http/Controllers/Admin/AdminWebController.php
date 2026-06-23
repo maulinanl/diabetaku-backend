@@ -38,7 +38,7 @@ class AdminWebController extends Controller
             'table' => 'blood_types',
             'primary_key' => 'blood_type_id',
             'fields' => [
-                'blood_type_name' => 'Golongan Darah',
+                'blood_type' => 'Golongan Darah',
             ],
         ],
         'rhesus-types' => [
@@ -46,7 +46,7 @@ class AdminWebController extends Controller
             'table' => 'rhesus_types',
             'primary_key' => 'rhesus_type_id',
             'fields' => [
-                'rhesus_type_name' => 'Jenis Rhesus',
+                'rhesus_type' => 'Jenis Rhesus',
             ],
         ],
         'relation-types' => [
