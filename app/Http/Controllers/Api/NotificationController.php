@@ -51,9 +51,429 @@ class NotificationController extends Controller
         }
     }
 
+
+    private function initialsFromName(?string $name): string
+    {
+        $name = trim((string) $name);
+
+        if ($name === '') {
+            return '-';
+        }
+
+        $parts = preg_split('/\s+/', $name);
+
+        if (count($parts) === 1) {
+            return strtoupper(mb_substr($parts[0], 0, 1));
+        }
+
+        return strtoupper(mb_substr($parts[0], 0, 1) . mb_substr($parts[1], 0, 1));
+    }
+
+    private function normalizeReferenceType(?string $value): string
+    {
+        return strtolower(str_replace([' ', '-'], '_', trim((string) $value)));
+    }
+
+    private function statusFromReferenceType(string $referenceType, ?string $title = null, ?string $message = null): string
+    {
+        $text = strtolower($referenceType . ' ' . (string) $title . ' ' . (string) $message);
+
+        if (str_contains($text, 'rejected') || str_contains($text, 'ditolak') || str_contains($text, 'menolak')) {
+            return 'Ditolak';
+        }
+
+        if (str_contains($text, 'disconnected') || str_contains($text, 'diputus') || str_contains($text, 'terputus')) {
+            return 'Tidak Terhubung';
+        }
+
+        if (str_contains($text, 'accepted') || str_contains($text, 'diterima') || str_contains($text, 'terhubung')) {
+            return 'Terhubung';
+        }
+
+        if (str_contains($text, 'request') || str_contains($text, 'menunggu')) {
+            return 'Menunggu';
+        }
+
+        return 'Terhubung';
+    }
+
+    private function normalizeDoctorRelationStatus(?string $status): ?string
+    {
+        $normalized = strtolower(trim((string) $status));
+
+        if ($normalized === '') {
+            return null;
+        }
+
+        if ($normalized === 'diterima' || $normalized === 'disetujui' || $normalized === 'terhubung') {
+            return 'Terhubung';
+        }
+
+        if ($normalized === 'menunggu') {
+            return 'Menunggu';
+        }
+
+        if ($normalized === 'ditolak') {
+            return 'Ditolak';
+        }
+
+        if ($normalized === 'diputus' || $normalized === 'tidak terhubung' || $normalized === 'terputus') {
+            return 'Tidak Terhubung';
+        }
+
+        return $status;
+    }
+
+    private function attachDoctorDetail($data, int $doctorId): void
+    {
+        $doctor = DB::table('doctors as d')
+            ->join('users as u', 'd.user_id', '=', 'u.user_id')
+            ->leftJoin('specializations as s', 'd.specialization_id', '=', 's.specialization_id')
+            ->where('d.doctor_id', $doctorId)
+            ->select(
+                'd.doctor_id',
+                'u.full_name as doctor_name',
+                's.specialization_name',
+                'd.institution'
+            )
+            ->first();
+
+        if (!$doctor) {
+            return;
+        }
+
+        $data->doctor_id = $doctor->doctor_id;
+        $data->doctor_name = $doctor->doctor_name;
+        $data->initial = $this->initialsFromName($doctor->doctor_name);
+        $data->specialization_name = $doctor->specialization_name ?? '-';
+        $data->institution = $doctor->institution ?? '-';
+        $data->info = trim(($doctor->specialization_name ?? '-') . ' • ' . ($doctor->institution ?? '-'));
+
+        // Untuk notifikasi lama seperti "Koneksi Dokter Diterima", status yang dipakai
+        // untuk tombol detail dokter harus mengikuti relasi TERBARU di database.
+        // Jadi kalau relasi sudah Diputus, halaman detail dokter tidak menampilkan tombol Putus Relasi lagi.
+        $patientId = DB::table('patients')
+            ->where('user_id', $data->user_id)
+            ->value('patient_id');
+
+        if (!$patientId) {
+            return;
+        }
+
+        $relation = DB::table('doctor_patient_relations')
+            ->where('doctor_id', $doctorId)
+            ->where('patient_id', $patientId)
+            ->orderByDesc('updated_at')
+            ->first();
+
+        if (!$relation) {
+            $data->current_relation_status = 'Belum Terhubung';
+            $data->status = 'Belum Terhubung';
+            return;
+        }
+
+        $currentStatus = $this->normalizeDoctorRelationStatus($relation->status ?? null);
+
+        $data->doctor_patient_relation_id = $relation->doctor_patient_relation_id ?? null;
+        $data->current_relation_status = $currentStatus ?? 'Belum Terhubung';
+        $data->relation_status = $currentStatus ?? 'Belum Terhubung';
+        $data->status = $currentStatus ?? 'Belum Terhubung';
+        $data->connected_since = $relation->connected_at ?? $relation->accepted_at ?? null;
+        $data->relation_updated_at = $relation->updated_at ?? null;
+    }
+
+    private function attachPatientDetail($data, int $patientId): void
+    {
+        $patient = DB::table('patients as p')
+            ->join('users as u', 'p.user_id', '=', 'u.user_id')
+            ->where('p.patient_id', $patientId)
+            ->select(
+                'p.patient_id',
+                'u.full_name as patient_name',
+                'u.gender',
+                'u.date_of_birth',
+                'p.diabetes_type'
+            )
+            ->first();
+
+        if (!$patient) {
+            return;
+        }
+
+        $data->patient_id = $patient->patient_id;
+        $data->patient_name = $patient->patient_name;
+        $data->full_name = $patient->patient_name;
+        $data->initial = $this->initialsFromName($patient->patient_name);
+        $data->gender = $patient->gender;
+        $data->date_of_birth = $patient->date_of_birth;
+        $data->diabetes_type = $patient->diabetes_type;
+    }
+
+    private function attachFamilyDetail($data, int $familyId): void
+    {
+        $family = DB::table('families as f')
+            ->join('users as u', 'f.user_id', '=', 'u.user_id')
+            ->leftJoin('family_patient_relations as fpr', function ($join) use ($data) {
+                $join->on('f.family_id', '=', 'fpr.family_id');
+
+                // Kalau notifikasi ini milik pasien, ambil relasi keluarga untuk pasien itu,
+                // supaya status setelah Terima/Tolak tidak tetap terbaca Menunggu dari relasi lain.
+                $patientId = DB::table('patients')
+                    ->where('user_id', $data->user_id)
+                    ->value('patient_id');
+
+                if ($patientId) {
+                    $join->where('fpr.patient_id', '=', $patientId);
+                }
+            })
+            ->leftJoin('relation_types as rt', 'fpr.relation_type_id', '=', 'rt.relation_type_id')
+            ->where('f.family_id', $familyId)
+            ->select(
+                'f.family_id',
+                'u.full_name as family_name',
+                'rt.relation_name',
+                'fpr.status',
+                'fpr.requested_at',
+                'fpr.responded_at',
+                'fpr.connected_at',
+                'fpr.updated_at as relation_updated_at'
+            )
+            ->orderByDesc('fpr.updated_at')
+            ->orderByDesc('fpr.requested_at')
+            ->first();
+
+        if (!$family) {
+            return;
+        }
+
+        $data->family_id = $family->family_id;
+        $data->family_name = $family->family_name;
+        $data->full_name = $family->family_name;
+        $data->name = $family->family_name;
+        $data->initial = $this->initialsFromName($family->family_name);
+        $data->relation = $family->relation_name ?? 'Keluarga';
+        $data->relation_name = $family->relation_name ?? 'Keluarga';
+        $data->status = $family->status ?? 'Menunggu';
+        $data->requested_at = $family->requested_at ?? $data->created_at;
+        $data->responded_at = $family->responded_at;
+        $data->connected_at = $family->connected_at;
+        $data->relation_updated_at = $family->relation_updated_at;
+    }
+
+    private function attachPrescriptionDetail($data): void
+    {
+        $prescriptionId = (int) $data->reference_id;
+
+        $prescription = DB::table('prescriptions as p')
+            ->leftJoin('medications as m', 'p.medication_id', '=', 'm.medication_id')
+            ->leftJoin('doctors as d', 'p.doctor_id', '=', 'd.doctor_id')
+            ->leftJoin('users as du', 'd.user_id', '=', 'du.user_id')
+            ->leftJoin('meal_rules as mr', 'p.meal_rule_id', '=', 'mr.meal_rule_id')
+            ->where('p.prescription_id', $prescriptionId)
+            ->select(
+                'p.prescription_id',
+                'p.patient_id',
+                'p.doctor_id',
+                'p.medication_id',
+                'p.dosage',
+                'p.form',
+                'p.indication',
+                'p.meal_rule_id',
+                DB::raw('COALESCE(mr.rule_name, p.meal_rule) as meal_rule'),
+                'p.notes',
+                'p.status',
+                'p.valid_from',
+                'p.valid_until',
+                'p.replaced_by',
+                'p.created_at as prescription_created_at',
+                'p.updated_at as prescription_updated_at',
+                'm.medication_name',
+                'm.description as medication_description',
+                'du.full_name as doctor_name'
+            )
+            ->first();
+
+        if (!$prescription) {
+            return;
+        }
+
+        foreach ((array) $prescription as $key => $value) {
+            $data->{$key} = $value;
+        }
+
+        $data->initial = $this->initialsFromName($prescription->doctor_name ?? 'Dokter');
+
+        $data->schedules = DB::table('prescription_schedules as ps')
+            ->leftJoin('medication_sessions as ms', 'ps.session_id', '=', 'ms.session_id')
+            ->where('ps.prescription_id', $prescriptionId)
+            ->select(
+                'ps.schedule_id',
+                'ps.session_id',
+                'ms.session_name',
+                'ms.default_reminder_time',
+                'ps.dose_per_session',
+                'ps.reminder_time',
+                'ps.is_active'
+            )
+            ->orderByRaw('COALESCE(ps.reminder_time, ms.default_reminder_time)')
+            ->get();
+    }
+
+    private function attachRecommendationDetail($data, string $referenceType): void
+    {
+        $referenceId = (int) $data->reference_id;
+
+        $recommendationsQuery = DB::table('recommendations as r')
+            ->join('clinical_notes as cn', 'r.clinical_note_id', '=', 'cn.clinical_note_id')
+            ->join('doctors as d', 'cn.doctor_id', '=', 'd.doctor_id')
+            ->join('users as du', 'd.user_id', '=', 'du.user_id')
+            ->select(
+                'r.recommendation_id',
+                'r.clinical_note_id',
+                'r.category',
+                'r.recommendation_text',
+                'r.created_at',
+                'du.full_name as doctor_name'
+            );
+
+        if ($referenceType === 'recommendation') {
+            $recommendationsQuery->where('r.recommendation_id', $referenceId);
+        } else {
+            $recommendationsQuery->where('r.clinical_note_id', $referenceId);
+        }
+
+        $recommendations = $recommendationsQuery
+            ->orderBy('r.recommendation_id')
+            ->get();
+
+        if ($recommendations->isEmpty()) {
+            return;
+        }
+
+        $first = $recommendations->first();
+
+        $data->recommendation_id = $first->recommendation_id;
+        $data->clinical_note_id = $first->clinical_note_id;
+        $data->doctor_name = $first->doctor_name;
+        $data->category = $recommendations->count() === 1 ? $first->category : $recommendations->count() . ' Rekomendasi';
+        $data->recommendation_text = $first->recommendation_text;
+        $data->recommendations = $recommendations;
+    }
+
+    private function enrichNotification($data)
+    {
+        if (!$data || !$data->reference_id || !$data->reference_type) {
+            return $data;
+        }
+
+        $referenceType = $this->normalizeReferenceType($data->reference_type);
+        $data->reference_type = $referenceType;
+
+        if ($referenceType === 'doctor_connection_request') {
+            $this->attachPatientDetail($data, (int) $data->reference_id);
+            $data->status = 'Menunggu';
+            return $data;
+        }
+
+        if (in_array($referenceType, [
+            'doctor_connection_accepted',
+            'doctor_connection_rejected',
+            'doctor_connection_disconnected',
+            'doctor_connection',
+        ], true)) {
+            $this->attachDoctorDetail($data, (int) $data->reference_id);
+
+            // Kalau attachDoctorDetail tidak menemukan relasi terbaru, baru fallback dari reference_type/title/message.
+            if (empty($data->status) || $data->status === '-') {
+                $data->status = $this->statusFromReferenceType($referenceType, $data->title, $data->message);
+            }
+
+            return $data;
+        }
+
+        if ($referenceType === 'doctor_patient_disconnected') {
+            $this->attachPatientDetail($data, (int) $data->reference_id);
+            $data->status = 'Tidak Terhubung';
+            return $data;
+        }
+
+        if (in_array($referenceType, [
+            'family_request',
+            'family_connection_request',
+        ], true)) {
+            $this->attachFamilyDetail($data, (int) $data->reference_id);
+
+            // Untuk permintaan keluarga, status harus mengikuti tabel family_patient_relations.
+            // Jadi setelah pasien klik Terima/Tolak, detail notifikasi ikut berubah.
+            if (empty($data->status) || $data->status === '-') {
+                $data->status = $this->statusFromReferenceType($referenceType, $data->title, $data->message);
+            }
+
+            return $data;
+        }
+
+        if (in_array($referenceType, [
+            'family_connection_disconnected',
+            'family_disconnected',
+            'family_patient_disconnected',
+        ], true)) {
+            $patientIdForUser = DB::table('patients')
+                ->where('user_id', $data->user_id)
+                ->value('patient_id');
+
+            $familyIdForUser = DB::table('families')
+                ->where('user_id', $data->user_id)
+                ->value('family_id');
+
+            // Kalau penerima notifikasi adalah pasien, reference_id berisi family_id.
+            // Detail harus menampilkan data keluarga, bukan data dokter.
+            if ($patientIdForUser) {
+                $this->attachFamilyDetail($data, (int) $data->reference_id);
+            }
+
+            // Kalau penerima notifikasi adalah keluarga, reference_id berisi patient_id.
+            // Detail harus menampilkan data pasien.
+            if (!$patientIdForUser && $familyIdForUser) {
+                $this->attachPatientDetail($data, (int) $data->reference_id);
+            }
+
+            $data->status = 'Tidak Terhubung';
+            return $data;
+        }
+
+        if (in_array($referenceType, [
+            'family_connection_accepted',
+            'family_connection_rejected',
+        ], true)) {
+            $this->attachPatientDetail($data, (int) $data->reference_id);
+            $data->status = $this->statusFromReferenceType($referenceType, $data->title, $data->message);
+            return $data;
+        }
+
+        if (in_array($referenceType, [
+            'prescription',
+            'prescription_created',
+            'prescription_updated',
+            'prescription_stopped',
+        ], true)) {
+            $this->attachPrescriptionDetail($data);
+            return $data;
+        }
+
+        if (in_array($referenceType, ['recommendation', 'clinical_note'], true)) {
+            $this->attachRecommendationDetail($data, $referenceType);
+            return $data;
+        }
+
+        return $data;
+    }
+
+
     public function index(Request $request, $userId)
     {
-        if ((int) $request->user()->user_id !== (int) $userId) {
+        $authUser = $request->user();
+
+        if ($authUser && (int) $authUser->user_id !== (int) $userId) {
             return response()->json([
                 'message' => 'Tidak boleh mengakses notifikasi pengguna lain'
             ], 403);
@@ -112,11 +532,15 @@ class NotificationController extends Controller
             ], 404);
         }
 
-        if ((int) $request->user()->user_id !== (int) $data->user_id) {
+        $authUser = $request->user();
+
+        if ($authUser && (int) $authUser->user_id !== (int) $data->user_id) {
             return response()->json([
                 'message' => 'Tidak boleh mengakses notifikasi pengguna lain'
             ], 403);
         }
+
+        $data = $this->enrichNotification($data);
 
         return response()->json([
             'message' => 'Detail notifikasi berhasil diambil',

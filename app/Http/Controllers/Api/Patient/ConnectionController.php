@@ -169,6 +169,8 @@ class ConnectionController extends Controller
                 'u.full_name',
                 's.specialization_name',
                 'd.institution',
+                'dpr.status as relation_status',
+                'dpr.connected_at as connected_since',
                 DB::raw("
                     CASE
                         WHEN dpr.status = 'Diterima' THEN 'Terhubung'
@@ -398,13 +400,13 @@ class ConnectionController extends Controller
                 ->where('p.patient_id', $request->patient_id)
                 ->value('u.full_name');
 
-            $$this->createNotification(
+            $this->createNotification(
                 $familyUserId,
                 'Putus Relasi',
                 'Relasi pasien terputus',
                 'Relasi dengan ' . ($patientName ?? 'pasien') . ' telah diputus.',
                 $request->patient_id,
-                'family_patient_disconnected'
+                'family_connection_disconnected'
             );
 
             return response()->json([

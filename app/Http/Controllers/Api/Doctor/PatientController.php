@@ -539,7 +539,7 @@ class PatientController extends Controller
                 'Relasi dokter terputus',
                 'Relasi dengan Dr. ' . ($doctorName ?? 'Dokter') . ' telah diputus.',
                 $request->doctor_id,
-                'doctor_connection'
+                'doctor_connection_disconnected'
             );
 
             return response()->json([
@@ -635,7 +635,7 @@ class PatientController extends Controller
                 'Permintaan koneksi diterima',
                 'Dr. ' . ($doctorName ?? 'Dokter') . ' menerima permintaan koneksi Anda.',
                 $request->doctor_id,
-                'doctor_connection'
+                'doctor_connection_accepted'
             );
 
             return response()->json([
@@ -682,7 +682,7 @@ class PatientController extends Controller
                 'Permintaan koneksi ditolak',
                 'Dr. ' . ($doctorName ?? 'Dokter') . ' menolak permintaan koneksi Anda.',
                 $request->doctor_id,
-                'doctor_connection'
+                'doctor_connection_rejected'
             );
 
             return response()->json([

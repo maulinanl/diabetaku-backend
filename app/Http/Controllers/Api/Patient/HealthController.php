@@ -441,6 +441,9 @@ class HealthController extends Controller
             ->whereDate('p.valid_until', '>=', $today)
             ->select(
                 'p.prescription_id',
+                'p.patient_id',
+                'p.valid_from',
+                'p.valid_until',
                 'ps.schedule_id',
                 'm.medication_name',
                 'm.description',

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Doctor;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 
 class PrescriptionController extends Controller
@@ -18,16 +19,33 @@ class PrescriptionController extends Controller
         'Krim/Salep',
     ];
 
-    private function getMealRuleByName(?string $ruleName)
+    private function activeMealRuleRule()
     {
-        if (!$ruleName) {
+        return Rule::exists('meal_rules', 'rule_name')
+            ->where(fn ($query) => $query->where('is_active', true));
+    }
+
+    private function resolveMealRuleId(?string $ruleName): ?int
+    {
+        if ($ruleName === null || trim($ruleName) === '') {
             return null;
         }
 
-        return DB::table('meal_rules')
+        $mealRuleId = DB::table('meal_rules')
+            ->where('rule_name', $ruleName)
             ->where('is_active', true)
-            ->whereRaw('LOWER(TRIM(rule_name)) = LOWER(TRIM(?))', [$ruleName])
-            ->first();
+            ->value('meal_rule_id');
+
+        return $mealRuleId === null ? null : (int) $mealRuleId;
+    }
+
+    private function withMealRuleId(array $data, ?string $mealRule): array
+    {
+        if (Schema::hasColumn('prescriptions', 'meal_rule_id')) {
+            $data['meal_rule_id'] = $this->resolveMealRuleId($mealRule);
+        }
+
+        return $data;
     }
 
     private function getNotificationTypeId($typeName)
@@ -94,7 +112,8 @@ class PrescriptionController extends Controller
         $prescriptionId,
         $title,
         $patientMessage,
-        $familyMessage = null
+        $familyMessage = null,
+        $referenceType = 'prescription'
     )
     {
         $patientUserId = DB::table('patients')
@@ -107,7 +126,7 @@ class PrescriptionController extends Controller
             $title,
             $patientMessage,
             $prescriptionId,
-            'prescription'
+            $referenceType
         );
 
         $familyUserIds = DB::table('family_patient_relations as fpr')
@@ -123,7 +142,7 @@ class PrescriptionController extends Controller
                 $title,
                 $familyMessage ?? $patientMessage,
                 $prescriptionId,
-                'prescription'
+                $referenceType
             );
         }
     }
@@ -170,7 +189,6 @@ class PrescriptionController extends Controller
     public function active(Request $request, $patientId)
     {
         $doctorId = $request->query('doctor_id');
-        $today = now()->toDateString();
 
         $data = DB::table('prescriptions as p')
             ->join('medications as m', 'p.medication_id', '=', 'm.medication_id')
@@ -178,8 +196,6 @@ class PrescriptionController extends Controller
             ->join('users as u', 'd.user_id', '=', 'u.user_id')
             ->where('p.patient_id', $patientId)
             ->where('p.status', 'Aktif')
-            ->whereDate('p.valid_from', '<=', $today)
-            ->whereDate('p.valid_until', '>=', $today)
             ->select(
                 'p.prescription_id',
                 'p.patient_id',
@@ -192,7 +208,6 @@ class PrescriptionController extends Controller
                 'p.form',
                 'p.indication',
                 'p.meal_rule',
-                'p.meal_rule_id',
                 'p.notes',
                 'p.status',
                 'p.valid_from',
@@ -254,7 +269,6 @@ class PrescriptionController extends Controller
                 'p.form',
                 'p.indication',
                 'p.meal_rule',
-                'p.meal_rule_id',
                 'p.notes',
                 'p.status',
                 'p.valid_from',
@@ -263,7 +277,6 @@ class PrescriptionController extends Controller
                 DB::raw("
                     CASE
                         WHEN p.status = 'Diganti' THEN 'Resep diperbarui'
-                        WHEN p.status = 'Selesai' AND p.notes ILIKE '%Relasi dokter-pasien terputus%' THEN 'Relasi dokter-pasien terputus'
                         WHEN p.status = 'Selesai' THEN 'Obat dihentikan'
                         ELSE 'Tidak aktif'
                     END as reason
@@ -309,7 +322,7 @@ class PrescriptionController extends Controller
             'dosage' => 'required|string|max:100',
             'form' => ['required', 'string', 'max:100', Rule::in($this->dosageForms)],
             'indication' => 'nullable|string',
-            'meal_rule' => 'required|string|max:100',
+            'meal_rule' => ['nullable', 'string', 'max:100', $this->activeMealRuleRule()],
             'notes' => 'nullable|string',
             'valid_from' => 'required|date',
             'valid_until' => 'required|date|after_or_equal:valid_from',
@@ -320,23 +333,14 @@ class PrescriptionController extends Controller
         ]);
 
         return DB::transaction(function () use ($request, $patientId) {
-            $mealRule = $this->getMealRuleByName($request->meal_rule);
-
-            if (!$mealRule) {
-                return response()->json([
-                    'message' => 'Aturan minum tidak valid atau tidak aktif',
-                ], 422);
-            }
-
-            $prescriptionId = DB::table('prescriptions')->insertGetId([
+            $prescriptionData = $this->withMealRuleId([
                 'patient_id' => $patientId,
                 'doctor_id' => $request->doctor_id,
                 'medication_id' => $request->medication_id,
                 'dosage' => $request->dosage,
                 'form' => $request->form,
                 'indication' => $request->indication,
-                'meal_rule' => $mealRule->rule_name,
-                'meal_rule_id' => $mealRule->meal_rule_id,
+                'meal_rule' => $request->meal_rule,
                 'notes' => $request->notes,
                 'status' => 'Aktif',
                 'valid_from' => $request->valid_from,
@@ -344,7 +348,12 @@ class PrescriptionController extends Controller
                 'replaced_by' => null,
                 'created_at' => now(),
                 'updated_at' => now(),
-            ], 'prescription_id');
+            ], $request->meal_rule);
+
+            $prescriptionId = DB::table('prescriptions')->insertGetId(
+                $prescriptionData,
+                'prescription_id'
+            );
 
             foreach ($request->schedules as $schedule) {
                 DB::table('prescription_schedules')->insert([
@@ -374,7 +383,8 @@ class PrescriptionController extends Controller
 
                 "Dokter menambahkan resep {$medicationName}. Silakan cek jadwal minum obat Anda.",
 
-                "Dokter menambahkan resep {$medicationName} untuk {$patientName}. Mohon bantu memantau jadwal minum obat pasien."
+                "Dokter menambahkan resep {$medicationName} untuk {$patientName}. Mohon bantu memantau jadwal minum obat pasien.",
+                'prescription_created'
             );
 
             return response()->json([
@@ -395,7 +405,7 @@ class PrescriptionController extends Controller
             'dosage' => 'required|string|max:100',
             'form' => ['required', 'string', 'max:100', Rule::in($this->dosageForms)],
             'indication' => 'nullable|string',
-            'meal_rule' => 'required|string|max:100',
+            'meal_rule' => ['nullable', 'string', 'max:100', $this->activeMealRuleRule()],
             'notes' => 'nullable|string',
             'valid_from' => 'required|date',
             'valid_until' => 'required|date|after_or_equal:valid_from',
@@ -406,14 +416,6 @@ class PrescriptionController extends Controller
         ]);
 
         return DB::transaction(function () use ($request, $prescriptionId) {
-            $mealRule = $this->getMealRuleByName($request->meal_rule);
-
-            if (!$mealRule) {
-                return response()->json([
-                    'message' => 'Aturan minum tidak valid atau tidak aktif',
-                ], 422);
-            }
-
             $old = DB::table('prescriptions')
                 ->where('prescription_id', $prescriptionId)
                 ->where('doctor_id', $request->doctor_id)
@@ -426,15 +428,14 @@ class PrescriptionController extends Controller
                 ], 404);
             }
 
-            $newPrescriptionId = DB::table('prescriptions')->insertGetId([
+            $newPrescriptionData = $this->withMealRuleId([
                 'patient_id' => $request->patient_id,
                 'doctor_id' => $request->doctor_id,
                 'medication_id' => $request->medication_id,
                 'dosage' => $request->dosage,
                 'form' => $request->form,
                 'indication' => $request->indication,
-                'meal_rule' => $mealRule->rule_name,
-                'meal_rule_id' => $mealRule->meal_rule_id,
+                'meal_rule' => $request->meal_rule,
                 'notes' => $request->notes,
                 'status' => 'Aktif',
                 'valid_from' => $request->valid_from,
@@ -442,7 +443,12 @@ class PrescriptionController extends Controller
                 'replaced_by' => null,
                 'created_at' => now(),
                 'updated_at' => now(),
-            ], 'prescription_id');
+            ], $request->meal_rule);
+
+            $newPrescriptionId = DB::table('prescriptions')->insertGetId(
+                $newPrescriptionData,
+                'prescription_id'
+            );
 
             foreach ($request->schedules as $schedule) {
                 DB::table('prescription_schedules')->insert([
@@ -488,7 +494,8 @@ class PrescriptionController extends Controller
 
                 "Dokter memperbarui resep {$medicationName}. Silakan cek jadwal minum obat terbaru.",
 
-                "Dokter memperbarui resep {$medicationName} untuk {$patientName}. Mohon bantu memantau jadwal minum obat pasien."
+                "Dokter memperbarui resep {$medicationName} untuk {$patientName}. Mohon bantu memantau jadwal minum obat pasien.",
+                'prescription_updated'
             );
 
             return response()->json([
@@ -553,7 +560,8 @@ class PrescriptionController extends Controller
 
                 "Dokter menghentikan resep {$prescription->medication_name}.",
 
-                "Dokter menghentikan resep {$prescription->medication_name} untuk {$patientName}."
+                "Dokter menghentikan resep {$prescription->medication_name} untuk {$patientName}.",
+                'prescription_stopped'
             );
 
             return response()->json([
@@ -583,7 +591,6 @@ class PrescriptionController extends Controller
                 'p.form',
                 'p.indication',
                 'p.meal_rule',
-                'p.meal_rule_id',
                 'p.notes',
                 'p.status',
                 'p.valid_from',

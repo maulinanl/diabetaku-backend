@@ -173,7 +173,7 @@ class PatientController extends Controller
                 'Permintaan koneksi keluarga',
                 ($familyName ?? 'Keluarga') . ' mengajukan permintaan koneksi sebagai pendamping.',
                 $request->family_id,
-                'family_request'
+                'family_connection_request'
             );
 
             return response()->json([
@@ -451,7 +451,7 @@ class PatientController extends Controller
                 'Relasi keluarga terputus',
                 'Relasi dengan ' . ($familyName ?? 'keluarga') . ' telah diputus.',
                 $request->family_id,
-                'family_disconnected'
+                'family_connection_disconnected'
             );
 
             return response()->json([
