@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Patient;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Services\PrescriptionLifecycleService;
 
 class ConnectionController extends Controller
 {
@@ -252,6 +253,12 @@ class ConnectionController extends Controller
                     'message' => 'Relasi dokter tidak ditemukan atau sudah tidak aktif'
                 ], 404);
             }
+
+            app(PrescriptionLifecycleService::class)
+                ->finishActivePrescriptionsForRelation(
+                    (int) $doctorId,
+                    (int) $request->patient_id
+                );
 
             $doctorUserId = DB::table('doctors')
                 ->where('doctor_id', $doctorId)

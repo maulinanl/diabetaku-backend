@@ -355,6 +355,23 @@ class HealthController extends Controller
             'note' => 'nullable|string|max:500',
         ]);
 
+        $activePrescription = DB::table('prescriptions as p')
+            ->join('prescription_schedules as ps', 'p.prescription_id', '=', 'ps.prescription_id')
+            ->where('p.prescription_id', $request->prescription_id)
+            ->where('p.patient_id', $request->patient_id)
+            ->where('ps.schedule_id', $request->schedule_id)
+            ->where('p.status', 'Aktif')
+            ->where('ps.is_active', true)
+            ->whereDate('p.valid_from', '<=', $request->log_date)
+            ->whereDate('p.valid_until', '>=', $request->log_date)
+            ->exists();
+
+        if (!$activePrescription) {
+            return response()->json([
+                'message' => 'Resep sudah tidak aktif atau di luar masa berlaku',
+            ], 422);
+        }
+
         $existing = DB::table('medication_consumption_logs')
             ->where('prescription_id', $request->prescription_id)
             ->where('patient_id', $request->patient_id)

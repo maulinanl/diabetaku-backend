@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Doctor;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Services\PrescriptionLifecycleService;
 
 class PatientController extends Controller
 {
@@ -349,16 +350,39 @@ class PatientController extends Controller
             ], 422);
         }
 
+        $doctorExists = DB::table('doctors')
+            ->where('doctor_id', $doctorId)
+            ->exists();
+
+        if (!$doctorExists) {
+            return response()->json([
+                'message' => 'Dokter tidak ditemukan'
+            ], 404);
+        }
+
+        $patientExists = DB::table('patients')
+            ->where('patient_id', $patientId)
+            ->exists();
+
+        if (!$patientExists) {
+            return response()->json([
+                'message' => 'Pasien tidak ditemukan'
+            ], 404);
+        }
+
         $data = DB::table('clinical_parameters as cp')
-            ->leftJoin('patient_custom_thresholds as pct', function ($join) use ($patientId) {
+            ->leftJoin('patient_custom_thresholds as pct', function ($join) use ($patientId, $doctorId) {
                 $join->on('cp.parameter_id', '=', 'pct.parameter_id')
-                    ->where('pct.patient_id', '=', $patientId);
+                    ->where('pct.patient_id', '=', $patientId)
+                    ->where('pct.set_by_doctor_id', '=', $doctorId);
             })
             ->select(
                 'cp.parameter_id',
                 'cp.parameter_name',
                 'cp.default_min',
                 'cp.default_max',
+                'cp.valid_min',
+                'cp.valid_max',
                 'cp.unit',
                 'pct.custom_min',
                 'pct.custom_max',
@@ -375,34 +399,77 @@ class PatientController extends Controller
 
     public function updateThreshold(Request $request, $patientId, $parameterId)
     {
-        $request->validate([
+        $validated = $request->validate([
             'doctor_id' => 'required|exists:doctors,doctor_id',
-            'custom_min' => 'nullable|numeric',
-            'custom_max' => 'nullable|numeric',
+            'custom_min' => 'required|numeric',
+            'custom_max' => 'required|numeric',
         ]);
+
+        $patientExists = DB::table('patients')
+            ->where('patient_id', $patientId)
+            ->exists();
+
+        if (!$patientExists) {
+            return response()->json([
+                'message' => 'Pasien tidak ditemukan'
+            ], 404);
+        }
+
+        $parameter = DB::table('clinical_parameters')
+            ->where('parameter_id', $parameterId)
+            ->first();
+
+        if (!$parameter) {
+            return response()->json([
+                'message' => 'Parameter klinis tidak ditemukan'
+            ], 404);
+        }
+
+        $customMin = (float) $validated['custom_min'];
+        $customMax = (float) $validated['custom_max'];
+        $unit = $parameter->unit ? ' ' . $parameter->unit : '';
+
+        if ($customMax <= $customMin) {
+            return response()->json([
+                'message' => 'Batas atas harus lebih besar dari batas bawah'
+            ], 422);
+        }
+
+        if ($parameter->valid_min !== null && $customMin < (float) $parameter->valid_min) {
+            return response()->json([
+                'message' => 'Batas bawah ' . $parameter->parameter_name . ' tidak boleh kurang dari ' . $parameter->valid_min . $unit
+            ], 422);
+        }
+
+        if ($parameter->valid_max !== null && $customMax > (float) $parameter->valid_max) {
+            return response()->json([
+                'message' => 'Batas atas ' . $parameter->parameter_name . ' tidak boleh lebih dari ' . $parameter->valid_max . $unit
+            ], 422);
+        }
 
         $exists = DB::table('patient_custom_thresholds')
             ->where('patient_id', $patientId)
             ->where('parameter_id', $parameterId)
+            ->where('set_by_doctor_id', $validated['doctor_id'])
             ->exists();
 
         if ($exists) {
             DB::table('patient_custom_thresholds')
                 ->where('patient_id', $patientId)
                 ->where('parameter_id', $parameterId)
+                ->where('set_by_doctor_id', $validated['doctor_id'])
                 ->update([
-                    'set_by_doctor_id' => $request->doctor_id,
-                    'custom_min' => $request->custom_min,
-                    'custom_max' => $request->custom_max,
+                    'custom_min' => $customMin,
+                    'custom_max' => $customMax,
                     'updated_at' => now(),
                 ]);
         } else {
             DB::table('patient_custom_thresholds')->insert([
                 'patient_id' => $patientId,
                 'parameter_id' => $parameterId,
-                'set_by_doctor_id' => $request->doctor_id,
-                'custom_min' => $request->custom_min,
-                'custom_max' => $request->custom_max,
+                'set_by_doctor_id' => $validated['doctor_id'],
+                'custom_min' => $customMin,
+                'custom_max' => $customMax,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
@@ -450,6 +517,12 @@ class PatientController extends Controller
                     'message' => 'Relasi dokter dan pasien tidak ditemukan atau sudah diputus'
                 ], 404);
             }
+
+            app(PrescriptionLifecycleService::class)
+                ->finishActivePrescriptionsForRelation(
+                    (int) $request->doctor_id,
+                    (int) $patientId
+                );
 
             $patientUserId = DB::table('patients')
                 ->where('patient_id', $patientId)

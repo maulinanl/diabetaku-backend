@@ -64,8 +64,10 @@ class AdminMasterDataController extends Controller
             'id' => 'parameter_id',
             'columns' => [
                 'parameter_name' => 'Nama Parameter',
-                'default_min' => 'Batas Minimum',
-                'default_max' => 'Batas Maksimum',
+                'default_min' => 'Batas Normal Minimum',
+                'default_max' => 'Batas Normal Maksimum',
+                'valid_min' => 'Rentang Valid Minimum',
+                'valid_max' => 'Rentang Valid Maksimum',
                 'unit' => 'Satuan',
             ],
         ],
@@ -75,6 +77,30 @@ class AdminMasterDataController extends Controller
     {
         abort_if(!isset($this->masters[$type]), 404);
         return $this->masters[$type];
+    }
+
+    private function rules(string $type, array $config): array
+    {
+        if ($type === 'clinical-parameters') {
+            return [
+                'parameter_name' => 'required|string|max:255',
+                'default_min' => 'required|numeric',
+                'default_max' => 'required|numeric|gt:default_min',
+                'valid_min' => 'required|numeric|lte:default_min',
+                'valid_max' => 'required|numeric|gte:default_max|gt:valid_min',
+                'unit' => 'required|string|max:50',
+            ];
+        }
+
+        $rules = [];
+
+        foreach ($config['columns'] as $column => $label) {
+            $rules[$column] = Str::contains($column, ['min', 'max'])
+                ? 'nullable|numeric'
+                : 'required|string|max:255';
+        }
+
+        return $rules;
     }
 
     public function index(string $type)
@@ -92,15 +118,7 @@ class AdminMasterDataController extends Controller
     {
         $config = $this->config($type);
 
-        $rules = [];
-
-        foreach ($config['columns'] as $column => $label) {
-            $rules[$column] = Str::contains($column, ['min', 'max'])
-                ? 'nullable|numeric'
-                : 'required|string|max:255';
-        }
-
-        $data = $request->validate($rules);
+        $data = $request->validate($this->rules($type, $config));
         $data['created_at'] = now();
         $data['updated_at'] = now();
 
@@ -113,15 +131,7 @@ class AdminMasterDataController extends Controller
     {
         $config = $this->config($type);
 
-        $rules = [];
-
-        foreach ($config['columns'] as $column => $label) {
-            $rules[$column] = Str::contains($column, ['min', 'max'])
-                ? 'nullable|numeric'
-                : 'required|string|max:255';
-        }
-
-        $data = $request->validate($rules);
+        $data = $request->validate($this->rules($type, $config));
         $data['updated_at'] = now();
 
         DB::table($config['table'])

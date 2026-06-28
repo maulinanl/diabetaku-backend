@@ -9,13 +9,6 @@ use Illuminate\Validation\Rule;
 
 class PrescriptionController extends Controller
 {
-    private array $mealRules = [
-        'Sebelum Makan',
-        'Sesudah Makan',
-        'Bersama Makan',
-        'Bebas',
-    ];
-
     private array $dosageForms = [
         'Tablet',
         'Kapsul',
@@ -24,6 +17,18 @@ class PrescriptionController extends Controller
         'Tetes',
         'Krim/Salep',
     ];
+
+    private function getMealRuleByName(?string $ruleName)
+    {
+        if (!$ruleName) {
+            return null;
+        }
+
+        return DB::table('meal_rules')
+            ->where('is_active', true)
+            ->whereRaw('LOWER(TRIM(rule_name)) = LOWER(TRIM(?))', [$ruleName])
+            ->first();
+    }
 
     private function getNotificationTypeId($typeName)
     {
@@ -165,6 +170,7 @@ class PrescriptionController extends Controller
     public function active(Request $request, $patientId)
     {
         $doctorId = $request->query('doctor_id');
+        $today = now()->toDateString();
 
         $data = DB::table('prescriptions as p')
             ->join('medications as m', 'p.medication_id', '=', 'm.medication_id')
@@ -172,6 +178,8 @@ class PrescriptionController extends Controller
             ->join('users as u', 'd.user_id', '=', 'u.user_id')
             ->where('p.patient_id', $patientId)
             ->where('p.status', 'Aktif')
+            ->whereDate('p.valid_from', '<=', $today)
+            ->whereDate('p.valid_until', '>=', $today)
             ->select(
                 'p.prescription_id',
                 'p.patient_id',
@@ -184,6 +192,7 @@ class PrescriptionController extends Controller
                 'p.form',
                 'p.indication',
                 'p.meal_rule',
+                'p.meal_rule_id',
                 'p.notes',
                 'p.status',
                 'p.valid_from',
@@ -245,6 +254,7 @@ class PrescriptionController extends Controller
                 'p.form',
                 'p.indication',
                 'p.meal_rule',
+                'p.meal_rule_id',
                 'p.notes',
                 'p.status',
                 'p.valid_from',
@@ -253,6 +263,7 @@ class PrescriptionController extends Controller
                 DB::raw("
                     CASE
                         WHEN p.status = 'Diganti' THEN 'Resep diperbarui'
+                        WHEN p.status = 'Selesai' AND p.notes ILIKE '%Relasi dokter-pasien terputus%' THEN 'Relasi dokter-pasien terputus'
                         WHEN p.status = 'Selesai' THEN 'Obat dihentikan'
                         ELSE 'Tidak aktif'
                     END as reason
@@ -298,7 +309,7 @@ class PrescriptionController extends Controller
             'dosage' => 'required|string|max:100',
             'form' => ['required', 'string', 'max:100', Rule::in($this->dosageForms)],
             'indication' => 'nullable|string',
-            'meal_rule' => ['nullable', 'string', 'max:100', Rule::in($this->mealRules)],
+            'meal_rule' => 'required|string|max:100',
             'notes' => 'nullable|string',
             'valid_from' => 'required|date',
             'valid_until' => 'required|date|after_or_equal:valid_from',
@@ -309,6 +320,14 @@ class PrescriptionController extends Controller
         ]);
 
         return DB::transaction(function () use ($request, $patientId) {
+            $mealRule = $this->getMealRuleByName($request->meal_rule);
+
+            if (!$mealRule) {
+                return response()->json([
+                    'message' => 'Aturan minum tidak valid atau tidak aktif',
+                ], 422);
+            }
+
             $prescriptionId = DB::table('prescriptions')->insertGetId([
                 'patient_id' => $patientId,
                 'doctor_id' => $request->doctor_id,
@@ -316,7 +335,8 @@ class PrescriptionController extends Controller
                 'dosage' => $request->dosage,
                 'form' => $request->form,
                 'indication' => $request->indication,
-                'meal_rule' => $request->meal_rule,
+                'meal_rule' => $mealRule->rule_name,
+                'meal_rule_id' => $mealRule->meal_rule_id,
                 'notes' => $request->notes,
                 'status' => 'Aktif',
                 'valid_from' => $request->valid_from,
@@ -375,7 +395,7 @@ class PrescriptionController extends Controller
             'dosage' => 'required|string|max:100',
             'form' => ['required', 'string', 'max:100', Rule::in($this->dosageForms)],
             'indication' => 'nullable|string',
-            'meal_rule' => ['nullable', 'string', 'max:100', Rule::in($this->mealRules)],
+            'meal_rule' => 'required|string|max:100',
             'notes' => 'nullable|string',
             'valid_from' => 'required|date',
             'valid_until' => 'required|date|after_or_equal:valid_from',
@@ -386,6 +406,14 @@ class PrescriptionController extends Controller
         ]);
 
         return DB::transaction(function () use ($request, $prescriptionId) {
+            $mealRule = $this->getMealRuleByName($request->meal_rule);
+
+            if (!$mealRule) {
+                return response()->json([
+                    'message' => 'Aturan minum tidak valid atau tidak aktif',
+                ], 422);
+            }
+
             $old = DB::table('prescriptions')
                 ->where('prescription_id', $prescriptionId)
                 ->where('doctor_id', $request->doctor_id)
@@ -405,7 +433,8 @@ class PrescriptionController extends Controller
                 'dosage' => $request->dosage,
                 'form' => $request->form,
                 'indication' => $request->indication,
-                'meal_rule' => $request->meal_rule,
+                'meal_rule' => $mealRule->rule_name,
+                'meal_rule_id' => $mealRule->meal_rule_id,
                 'notes' => $request->notes,
                 'status' => 'Aktif',
                 'valid_from' => $request->valid_from,
@@ -554,6 +583,7 @@ class PrescriptionController extends Controller
                 'p.form',
                 'p.indication',
                 'p.meal_rule',
+                'p.meal_rule_id',
                 'p.notes',
                 'p.status',
                 'p.valid_from',

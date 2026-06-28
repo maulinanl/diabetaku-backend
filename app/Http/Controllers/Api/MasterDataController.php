@@ -72,6 +72,17 @@ class MasterDataController extends Controller
         return response()->json([
             'message' => 'Data parameter klinis berhasil diambil',
             'data' => DB::table('clinical_parameters')
+                ->select(
+                    'parameter_id',
+                    'parameter_name',
+                    'default_min',
+                    'default_max',
+                    'valid_min',
+                    'valid_max',
+                    'unit',
+                    'created_at',
+                    'updated_at'
+                )
                 ->orderBy('parameter_id')
                 ->get()
         ]);
@@ -79,11 +90,15 @@ class MasterDataController extends Controller
 
     public function prescriptionMealRules()
     {
-        $data = DB::select("SELECT unnest(enum_range(NULL::meal_rule_enum)) as value");
+        $data = DB::table('meal_rules')
+            ->where('is_active', true)
+            ->orderBy('meal_rule_id')
+            ->pluck('rule_name')
+            ->values();
 
         return response()->json([
             'message' => 'Aturan minum berhasil diambil',
-            'data' => collect($data)->pluck('value')->values()
+            'data' => $data
         ]);
     }
 }
