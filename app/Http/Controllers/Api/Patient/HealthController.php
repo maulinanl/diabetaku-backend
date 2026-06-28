@@ -8,11 +8,18 @@ use Illuminate\Support\Facades\DB;
 
 class HealthController extends Controller
 {
+    private function getNotificationTypeId($typeName)
+    {
+        return DB::table('notification_types')
+            ->where('notification_type_name', $typeName)
+            ->value('notification_type_id');
+    }
+
     private function createNotification($userId, $typeId, $title, $message, $referenceId = null, $referenceType = null)
     {
         if (!$userId || !$typeId) return;
 
-        DB::table('notifications')->insert([
+        $notificationId = DB::table('notifications')->insertGetId([
             'user_id' => $userId,
             'notification_type_id' => $typeId,
             'title' => $title,
@@ -22,7 +29,39 @@ class HealthController extends Controller
             'is_read' => false,
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
+        ], 'notification_id');
+
+        $sendPushNotification = function () use (
+            $userId,
+            $title,
+            $message,
+            $notificationId,
+            $referenceId,
+            $referenceType,
+            $typeId
+        ) {
+            try {
+                app(\App\Services\FcmService::class)->sendToUser(
+                    $userId,
+                    $title,
+                    $message,
+                    [
+                        'notification_id' => $notificationId,
+                        'reference_id' => $referenceId ?? '',
+                        'reference_type' => $referenceType ?? '',
+                        'notification_type_id' => $typeId,
+                    ]
+                );
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        };
+
+        if (DB::transactionLevel() > 0) {
+            DB::afterCommit($sendPushNotification);
+        } else {
+            $sendPushNotification();
+        }
     }
 
     private function getPatientName($patientId)
@@ -49,9 +88,13 @@ class HealthController extends Controller
             default => 'data kesehatan',
         };
 
+        $notificationTypeId = $this->getNotificationTypeId('Validasi Data');
+
+        if (!$notificationTypeId) return;
+
         $this->createNotification(
             $inputByUserId,
-            5,
+            $notificationTypeId,
             $status === 'Valid' ? 'Data Diterima' : 'Data Ditolak',
             $status === 'Valid'
                 ? "{$patientName} menerima {$label} yang Anda tambahkan."
@@ -63,6 +106,10 @@ class HealthController extends Controller
 
     private function notifyDoctorsIfAbnormal($patientId, $parameterName, $value, $title, $message)
     {
+        $notificationTypeId = $this->getNotificationTypeId('Data Abnormal');
+
+        if (!$notificationTypeId) return;
+
         $doctors = DB::table('doctor_patient_relations as dpr')
             ->join('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
             ->where('dpr.patient_id', $patientId)
@@ -76,7 +123,7 @@ class HealthController extends Controller
             if ($this->isOutOfRange($value, $threshold)) {
                 $this->createNotification(
                     $doctor->user_id,
-                    1,
+                    $notificationTypeId,
                     $title,
                     $message,
                     $patientId,

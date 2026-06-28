@@ -22,7 +22,7 @@ class PatientController extends Controller
         $typeId = $this->getNotificationTypeId($typeName);
         if (!$typeId) return;
 
-        DB::table('notifications')->insert([
+        $notificationId = DB::table('notifications')->insertGetId([
             'user_id' => $userId,
             'notification_type_id' => $typeId,
             'title' => $title,
@@ -32,7 +32,39 @@ class PatientController extends Controller
             'is_read' => false,
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
+        ], 'notification_id');
+
+        $sendPushNotification = function () use (
+            $userId,
+            $title,
+            $message,
+            $notificationId,
+            $referenceId,
+            $referenceType,
+            $typeId
+        ) {
+            try {
+                app(\App\Services\FcmService::class)->sendToUser(
+                    $userId,
+                    $title,
+                    $message,
+                    [
+                        'notification_id' => $notificationId,
+                        'reference_id' => $referenceId ?? '',
+                        'reference_type' => $referenceType ?? '',
+                        'notification_type_id' => $typeId,
+                    ]
+                );
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        };
+
+        if (DB::transactionLevel() > 0) {
+            DB::afterCommit($sendPushNotification);
+        } else {
+            $sendPushNotification();
+        }
     }
 
     private function abnormalConditionSql($doctorId)

@@ -60,5 +60,11 @@ Route::prefix('admin')->group(function () {
 
         Route::post('/master/{type}/{id}/delete', [AdminWebController::class, 'deleteMasterData'])
             ->name('master.delete');
+
+        Route::post('/users/{userId}/reset-password', [AdminWebController::class, 'resetUserPassword'])
+            ->name('users.reset-password');
+
+        Route::post('/users/{userId}/send-reset-link', [AdminWebController::class, 'sendUserResetPasswordLink'])
+            ->name('users.send-reset-link');
     });
 });

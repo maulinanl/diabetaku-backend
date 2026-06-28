@@ -18,7 +18,7 @@ class RecommendationController extends Controller
     ) {
         if (!$userId || !$typeId) return;
 
-        DB::table('notifications')->insert([
+        $notificationId = DB::table('notifications')->insertGetId([
             'user_id' => $userId,
             'notification_type_id' => $typeId,
             'title' => $title,
@@ -28,7 +28,39 @@ class RecommendationController extends Controller
             'is_read' => false,
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
+        ], 'notification_id');
+
+        $sendPushNotification = function () use (
+            $userId,
+            $title,
+            $message,
+            $notificationId,
+            $referenceId,
+            $referenceType,
+            $typeId
+        ) {
+            try {
+                app(\App\Services\FcmService::class)->sendToUser(
+                    $userId,
+                    $title,
+                    $message,
+                    [
+                        'notification_id' => $notificationId,
+                        'reference_id' => $referenceId ?? '',
+                        'reference_type' => $referenceType ?? '',
+                        'notification_type_id' => $typeId,
+                    ]
+                );
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        };
+
+        if (DB::transactionLevel() > 0) {
+            DB::afterCommit($sendPushNotification);
+        } else {
+            $sendPushNotification();
+        }
     }
 
     private function getRecipientRole($userId)
@@ -89,6 +121,12 @@ class RecommendationController extends Controller
             ->where('notification_type_name', 'Rekomendasi Dokter')
             ->value('notification_type_id');
 
+        if (!$notificationTypeId) {
+            return response()->json([
+                'message' => 'Tipe notifikasi Rekomendasi Dokter tidak ditemukan'
+            ], 500);
+        }
+
         $recommendationIds = DB::transaction(function () use (
             $request,
             $clinicalNoteId,
@@ -139,15 +177,6 @@ class RecommendationController extends Controller
                     'recommendation'
                 );
             }
-
-            $this->createNotification(
-                $clinicalNote->doctor_user_id,
-                $notificationTypeId,
-                'Rekomendasi Terkirim',
-                'Rekomendasi untuk ' . $clinicalNote->patient_name . ' berhasil dikirim.',
-                $clinicalNoteId,
-                'clinical_note'
-            );
 
             return $recommendationIds;
         });

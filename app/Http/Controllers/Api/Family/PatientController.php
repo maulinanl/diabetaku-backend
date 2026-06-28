@@ -8,11 +8,21 @@ use Illuminate\Support\Facades\DB;
 
 class PatientController extends Controller
 {
-    private function createNotification($userId, $typeId, $title, $message, $referenceId = null, $referenceType = null)
+    private function getNotificationTypeId($typeName)
     {
-        if (!$userId || !$typeId) return;
+        return DB::table('notification_types')
+            ->where('notification_type_name', $typeName)
+            ->value('notification_type_id');
+    }
 
-        DB::table('notifications')->insert([
+    private function createNotification($userId, $typeName, $title, $message, $referenceId = null, $referenceType = null)
+    {
+        if (!$userId || !$typeName) return;
+
+        $typeId = $this->getNotificationTypeId($typeName);
+        if (!$typeId) return;
+
+        $notificationId = DB::table('notifications')->insertGetId([
             'user_id' => $userId,
             'notification_type_id' => $typeId,
             'title' => $title,
@@ -22,7 +32,39 @@ class PatientController extends Controller
             'is_read' => false,
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
+        ], 'notification_id');
+
+        $sendPushNotification = function () use (
+            $userId,
+            $title,
+            $message,
+            $notificationId,
+            $referenceId,
+            $referenceType,
+            $typeId
+        ) {
+            try {
+                app(\App\Services\FcmService::class)->sendToUser(
+                    $userId,
+                    $title,
+                    $message,
+                    [
+                        'notification_id' => $notificationId,
+                        'reference_id' => $referenceId ?? '',
+                        'reference_type' => $referenceType ?? '',
+                        'notification_type_id' => $typeId,
+                    ]
+                );
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        };
+
+        if (DB::transactionLevel() > 0) {
+            DB::afterCommit($sendPushNotification);
+        } else {
+            $sendPushNotification();
+        }
     }
 
     private function getPatientName($patientId)
@@ -127,7 +169,7 @@ class PatientController extends Controller
 
             $this->createNotification(
                 $patientUserId,
-                2,
+                'Permintaan Koneksi',
                 'Permintaan koneksi keluarga',
                 ($familyName ?? 'Keluarga') . ' mengajukan permintaan koneksi sebagai pendamping.',
                 $request->family_id,
@@ -405,7 +447,7 @@ class PatientController extends Controller
 
             $this->createNotification(
                 $patientUserId,
-                6,
+                'Putus Relasi',
                 'Relasi keluarga terputus',
                 'Relasi dengan ' . ($familyName ?? 'keluarga') . ' telah diputus.',
                 $request->family_id,

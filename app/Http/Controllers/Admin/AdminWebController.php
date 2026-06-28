@@ -5,6 +5,10 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Mail;
+use Carbon\Carbon;
 
 class AdminWebController extends Controller
 {
@@ -367,5 +371,42 @@ class AdminWebController extends Controller
                 ->route('admin.web.master.index', $type)
                 ->with('error', 'Data tidak bisa dihapus karena masih digunakan pada data lain.');
         }
+    }
+
+    public function sendUserResetPasswordLink($userId)
+    {
+        $user = DB::table('users')
+            ->where('user_id', $userId)
+            ->first();
+
+        if (!$user) {
+            return back()->with('error', 'Pengguna tidak ditemukan.');
+        }
+
+        if (!$user->email) {
+            return back()->with('error', 'Pengguna tidak memiliki email.');
+        }
+
+        $token = Str::random(64);
+
+        DB::table('password_reset_tokens')->updateOrInsert(
+            ['email' => $user->email],
+            [
+                'token' => Hash::make($token),
+                'created_at' => now(),
+            ]
+        );
+
+        $resetUrl = url('/reset-password?token=' . $token . '&email=' . urlencode($user->email));
+
+        Mail::send('emails.reset-password', [
+            'name' => $user->full_name,
+            'resetUrl' => $resetUrl,
+        ], function ($message) use ($user) {
+            $message->to($user->email)
+                ->subject('Reset Password Akun diabetAku');
+        });
+
+        return back()->with('success', 'Link reset password berhasil dikirim ke email pengguna.');
     }
 }

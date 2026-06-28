@@ -1,6 +1,8 @@
 <?php
 
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use App\Services\FcmService;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\MasterDataController;
 use App\Http\Controllers\Api\Doctor\PatientController as DoctorPatientController;
@@ -163,20 +165,14 @@ Route::prefix('notifications')->group(function () {
 
     Route::get('/user/{userId}', [NotificationController::class, 'index']);
 
-    Route::patch('/{notificationId}/read', [
-        NotificationController::class,
-        'markAsRead'
-    ]);
+    Route::patch('/{notificationId}/read', [NotificationController::class, 'markAsRead']);
 
-    Route::patch('/user/{userId}/read-all', [
-        NotificationController::class,
-        'markAllAsRead'
-    ]);
+    Route::patch('/user/{userId}/read-all', [NotificationController::class, 'markAllAsRead']);
 
-    Route::post('/', [
-        NotificationController::class,
-        'store'
-    ]);
+    Route::post('/', [NotificationController::class, 'store']);
+
+    Route::middleware('auth:sanctum')->post('/fcm-token', [NotificationController::class, 'saveFcmToken']);
+    Route::middleware('auth:sanctum')->post('/test-push', [NotificationController::class, 'testPush']);
 });
 
 Route::prefix('admin')->group(function () {

@@ -3,11 +3,54 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\FcmService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class NotificationController extends Controller
 {
+    private function sendPushNotification(
+        $userId,
+        $title,
+        $message,
+        $notificationId = null,
+        $referenceId = null,
+        $referenceType = null,
+        $notificationTypeId = null
+    ) {
+        $send = function () use (
+            $userId,
+            $title,
+            $message,
+            $notificationId,
+            $referenceId,
+            $referenceType,
+            $notificationTypeId
+        ) {
+            try {
+                app(FcmService::class)->sendToUser(
+                    $userId,
+                    $title,
+                    $message,
+                    [
+                        'notification_id' => $notificationId ?? '',
+                        'reference_id' => $referenceId ?? '',
+                        'reference_type' => $referenceType ?? '',
+                        'notification_type_id' => $notificationTypeId ?? '',
+                    ]
+                );
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        };
+
+        if (DB::transactionLevel() > 0) {
+            DB::afterCommit($send);
+        } else {
+            $send();
+        }
+    }
+
     public function index($userId)
     {
         $data = DB::table('notifications as n')
@@ -80,7 +123,7 @@ class NotificationController extends Controller
             'reference_type' => 'nullable|string|max:50',
         ]);
 
-        $id = DB::table('notifications')->insertGetId([
+        $notificationId = DB::table('notifications')->insertGetId([
             'user_id' => $request->user_id,
             'notification_type_id' => $request->notification_type_id,
             'title' => $request->title,
@@ -92,9 +135,19 @@ class NotificationController extends Controller
             'updated_at' => now(),
         ], 'notification_id');
 
+        $this->sendPushNotification(
+            $request->user_id,
+            $request->title,
+            $request->message,
+            $notificationId,
+            $request->reference_id,
+            $request->reference_type,
+            $request->notification_type_id
+        );
+
         return response()->json([
             'message' => 'Notifikasi berhasil dibuat',
-            'notification_id' => $id
+            'notification_id' => $notificationId
         ], 201);
     }
 
@@ -133,6 +186,42 @@ class NotificationController extends Controller
 
         return response()->json([
             'message' => 'Semua notifikasi berhasil ditandai sebagai dibaca'
+        ]);
+    }
+
+    public function saveFcmToken(Request $request)
+    {
+        $request->validate([
+            'fcm_token' => 'required|string',
+        ]);
+
+        DB::table('users')
+            ->where('user_id', $request->user()->user_id)
+            ->update([
+                'fcm_token' => $request->fcm_token,
+                'updated_at' => now(),
+            ]);
+
+        return response()->json([
+            'message' => 'FCM token berhasil disimpan'
+        ]);
+    }
+
+    public function testPush(Request $request, FcmService $fcmService)
+    {
+        $sent = $fcmService->sendToUser(
+            $request->user()->user_id,
+            'Tes Notifikasi DiabetAku',
+            'Kalau ini muncul di status bar, berarti FCM sudah berhasil.',
+            [
+                'type' => 'test',
+                'source' => 'laravel',
+            ]
+        );
+
+        return response()->json([
+            'message' => $sent ? 'Push berhasil dikirim' : 'Push gagal dikirim',
+            'sent' => $sent,
         ]);
     }
 }

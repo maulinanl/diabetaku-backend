@@ -39,7 +39,7 @@ class PrescriptionController extends Controller
         $typeId = $this->getNotificationTypeId($typeName);
         if (!$typeId) return;
 
-        DB::table('notifications')->insert([
+        $notificationId = DB::table('notifications')->insertGetId([
             'user_id' => $userId,
             'notification_type_id' => $typeId,
             'title' => $title,
@@ -49,47 +49,79 @@ class PrescriptionController extends Controller
             'is_read' => false,
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
+        ], 'notification_id');
+
+        $sendPushNotification = function () use (
+            $userId,
+            $title,
+            $message,
+            $notificationId,
+            $referenceId,
+            $referenceType,
+            $typeId
+        ) {
+            try {
+                app(\App\Services\FcmService::class)->sendToUser(
+                    $userId,
+                    $title,
+                    $message,
+                    [
+                        'notification_id' => $notificationId,
+                        'reference_id' => $referenceId ?? '',
+                        'reference_type' => $referenceType ?? '',
+                        'notification_type_id' => $typeId,
+                    ]
+                );
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        };
+
+        if (DB::transactionLevel() > 0) {
+            DB::afterCommit($sendPushNotification);
+        } else {
+            $sendPushNotification();
+        }
     }
 
     private function notifyPrescriptionChanged(
-    $patientId,
-    $prescriptionId,
-    $title,
-    $patientMessage,
-    $familyMessage = null
-)
-{
-    $patientUserId = DB::table('patients')
-        ->where('patient_id', $patientId)
-        ->value('user_id');
-
-    $this->createNotification(
-        $patientUserId,
-        'Pengingat Obat',
+        $patientId,
+        $prescriptionId,
         $title,
         $patientMessage,
-        $prescriptionId,
-        'prescription'
-    );
+        $familyMessage = null
+    )
+    {
+        $patientUserId = DB::table('patients')
+            ->where('patient_id', $patientId)
+            ->value('user_id');
 
-    $familyUserIds = DB::table('family_patient_relations as fpr')
-        ->join('families as f', 'fpr.family_id', '=', 'f.family_id')
-        ->where('fpr.patient_id', $patientId)
-        ->where('fpr.status', 'Diterima')
-        ->pluck('f.user_id');
-
-    foreach ($familyUserIds as $userId) {
         $this->createNotification(
-            $userId,
+            $patientUserId,
             'Pengingat Obat',
             $title,
-            $familyMessage ?? $patientMessage,
+            $patientMessage,
             $prescriptionId,
             'prescription'
         );
+
+        $familyUserIds = DB::table('family_patient_relations as fpr')
+            ->join('families as f', 'fpr.family_id', '=', 'f.family_id')
+            ->where('fpr.patient_id', $patientId)
+            ->where('fpr.status', 'Diterima')
+            ->pluck('f.user_id');
+
+        foreach ($familyUserIds as $userId) {
+            $this->createNotification(
+                $userId,
+                'Pengingat Obat',
+                $title,
+                $familyMessage ?? $patientMessage,
+                $prescriptionId,
+                'prescription'
+            );
+        }
     }
-}
 
     public function searchMedications(Request $request)
     {
@@ -415,6 +447,11 @@ class PrescriptionController extends Controller
                 ->where('medication_id', $request->medication_id)
                 ->value('medication_name');
 
+            $patientName = DB::table('patients as p')
+                ->join('users as u', 'p.user_id', '=', 'u.user_id')
+                ->where('p.patient_id', $request->patient_id)
+                ->value('u.full_name');
+
             $this->notifyPrescriptionChanged(
                 $request->patient_id,
                 $newPrescriptionId,
@@ -474,6 +511,11 @@ class PrescriptionController extends Controller
                     'is_active' => false,
                     'updated_at' => now(),
                 ]);
+
+            $patientName = DB::table('patients as p')
+                ->join('users as u', 'p.user_id', '=', 'u.user_id')
+                ->where('p.patient_id', $prescription->patient_id)
+                ->value('u.full_name');
 
             $this->notifyPrescriptionChanged(
                 $prescription->patient_id,

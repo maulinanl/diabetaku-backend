@@ -8,11 +8,21 @@ use Illuminate\Support\Facades\DB;
 
 class ConnectionController extends Controller
 {
-    private function createNotification($userId, $typeId, $title, $message, $referenceId = null, $referenceType = null)
+    private function getNotificationTypeId($typeName)
     {
-        if (!$userId) return;
+        return DB::table('notification_types')
+            ->where('notification_type_name', $typeName)
+            ->value('notification_type_id');
+    }
 
-        DB::table('notifications')->insert([
+    private function createNotification($userId, $typeName, $title, $message, $referenceId = null, $referenceType = null)
+    {
+        if (!$userId || !$typeName) return;
+
+        $typeId = $this->getNotificationTypeId($typeName);
+        if (!$typeId) return;
+
+        $notificationId = DB::table('notifications')->insertGetId([
             'user_id' => $userId,
             'notification_type_id' => $typeId,
             'title' => $title,
@@ -22,7 +32,39 @@ class ConnectionController extends Controller
             'is_read' => false,
             'created_at' => now(),
             'updated_at' => now(),
-        ]);
+        ], 'notification_id');
+
+        $sendPushNotification = function () use (
+            $userId,
+            $title,
+            $message,
+            $notificationId,
+            $referenceId,
+            $referenceType,
+            $typeId
+        ) {
+            try {
+                app(\App\Services\FcmService::class)->sendToUser(
+                    $userId,
+                    $title,
+                    $message,
+                    [
+                        'notification_id' => $notificationId,
+                        'reference_id' => $referenceId ?? '',
+                        'reference_type' => $referenceType ?? '',
+                        'notification_type_id' => $typeId,
+                    ]
+                );
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        };
+
+        if (DB::transactionLevel() > 0) {
+            DB::afterCommit($sendPushNotification);
+        } else {
+            $sendPushNotification();
+        }
     }
 
     public function connectedDoctors($patientId)
@@ -176,7 +218,7 @@ class ConnectionController extends Controller
 
             $this->createNotification(
                 $doctorUserId,
-                2,
+                'Permintaan Koneksi',
                 'Permintaan koneksi baru',
                 ($patientName ?? 'Pasien') . ' mengajukan permintaan untuk terhubung dengan dokter.',
                 $request->patient_id,
@@ -222,7 +264,7 @@ class ConnectionController extends Controller
 
             $this->createNotification(
                 $doctorUserId,
-                6,
+                'Putus Relasi',
                 'Relasi pasien terputus',
                 'Relasi dengan ' . ($patientName ?? 'pasien') . ' telah diputus. Data lama masih dapat dilihat.',
                 $request->patient_id,
@@ -269,7 +311,7 @@ class ConnectionController extends Controller
 
             $this->createNotification(
                 $familyUserId,
-                2,
+                'Permintaan Koneksi',
                 'Permintaan koneksi diterima',
                 ($patientName ?? 'Pasien') . ' telah menerima permintaan koneksi Anda.',
                 $request->patient_id,
@@ -311,7 +353,7 @@ class ConnectionController extends Controller
 
             $this->createNotification(
                 $familyUserId,
-                5,
+                'Permintaan Koneksi',
                 'Permintaan koneksi ditolak',
                 ($patientName ?? 'Pasien') . ' menolak permintaan koneksi Anda.',
                 $request->patient_id,
@@ -349,9 +391,9 @@ class ConnectionController extends Controller
                 ->where('p.patient_id', $request->patient_id)
                 ->value('u.full_name');
 
-            $this->createNotification(
+            $$this->createNotification(
                 $familyUserId,
-                6,
+                'Putus Relasi',
                 'Relasi pasien terputus',
                 'Relasi dengan ' . ($patientName ?? 'pasien') . ' telah diputus.',
                 $request->patient_id,
