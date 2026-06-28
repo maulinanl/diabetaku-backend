@@ -161,18 +161,14 @@ Route::prefix('family')->group(function () {
     Route::post('/patients/{patientId}/medication', [FamilyHealthController::class, 'storeMedication']);
 });
 
-Route::prefix('notifications')->group(function () {
-
+Route::middleware('auth:sanctum')->prefix('notifications')->group(function () {
     Route::get('/user/{userId}', [NotificationController::class, 'index']);
-
+    Route::get('/{notificationId}', [NotificationController::class, 'show']);
     Route::patch('/{notificationId}/read', [NotificationController::class, 'markAsRead']);
-
     Route::patch('/user/{userId}/read-all', [NotificationController::class, 'markAllAsRead']);
-
-    Route::post('/', [NotificationController::class, 'store']);
-
-    Route::middleware('auth:sanctum')->post('/fcm-token', [NotificationController::class, 'saveFcmToken']);
-    Route::middleware('auth:sanctum')->post('/test-push', [NotificationController::class, 'testPush']);
+    Route::post('/fcm-token', [NotificationController::class, 'saveFcmToken']);
+    Route::post('/fcm-token/deactivate', [NotificationController::class, 'deactivateFcmToken']);
+    Route::post('/test-push', [NotificationController::class, 'testPush']);
 });
 
 Route::prefix('admin')->group(function () {

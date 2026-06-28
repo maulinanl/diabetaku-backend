@@ -51,8 +51,14 @@ class NotificationController extends Controller
         }
     }
 
-    public function index($userId)
+    public function index(Request $request, $userId)
     {
+        if ((int) $request->user()->user_id !== (int) $userId) {
+            return response()->json([
+                'message' => 'Tidak boleh mengakses notifikasi pengguna lain'
+            ], 403);
+        }
+
         $data = DB::table('notifications as n')
             ->leftJoin('notification_types as nt', 'n.notification_type_id', '=', 'nt.notification_type_id')
             ->where('n.user_id', $userId)
@@ -79,7 +85,7 @@ class NotificationController extends Controller
         ]);
     }
 
-    public function show($notificationId)
+    public function show(Request $request, $notificationId)
     {
         $data = DB::table('notifications as n')
             ->leftJoin('notification_types as nt', 'n.notification_type_id', '=', 'nt.notification_type_id')
@@ -104,6 +110,12 @@ class NotificationController extends Controller
             return response()->json([
                 'message' => 'Notifikasi tidak ditemukan'
             ], 404);
+        }
+
+        if ((int) $request->user()->user_id !== (int) $data->user_id) {
+            return response()->json([
+                'message' => 'Tidak boleh mengakses notifikasi pengguna lain'
+            ], 403);
         }
 
         return response()->json([
@@ -193,17 +205,75 @@ class NotificationController extends Controller
     {
         $request->validate([
             'fcm_token' => 'required|string',
+            'device_id' => 'nullable|string|max:255',
+            'platform' => 'nullable|string|max:50',
         ]);
 
-        DB::table('users')
-            ->where('user_id', $request->user()->user_id)
+        $user = $request->user();
+
+        DB::table('user_fcm_tokens')
+            ->where('fcm_token', $request->fcm_token)
+            ->where('user_id', '!=', $user->user_id)
             ->update([
+                'is_active' => false,
+                'logged_out_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+        $existingToken = DB::table('user_fcm_tokens')
+            ->where('user_id', $user->user_id)
+            ->where('fcm_token', $request->fcm_token)
+            ->first();
+
+        if ($existingToken) {
+            DB::table('user_fcm_tokens')
+                ->where('user_fcm_token_id', $existingToken->user_fcm_token_id)
+                ->update([
+                    'device_id' => $request->device_id,
+                    'platform' => $request->platform,
+                    'is_active' => true,
+                    'last_seen_at' => now(),
+                    'logged_out_at' => null,
+                    'updated_at' => now(),
+                ]);
+        } else {
+            DB::table('user_fcm_tokens')->insert([
+                'user_id' => $user->user_id,
                 'fcm_token' => $request->fcm_token,
+                'device_id' => $request->device_id,
+                'platform' => $request->platform,
+                'is_active' => true,
+                'last_seen_at' => now(),
+                'logged_out_at' => null,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        return response()->json([
+            'message' => 'FCM token berhasil disimpan',
+        ]);
+    }
+
+    public function deactivateFcmToken(Request $request)
+    {
+        $request->validate([
+            'fcm_token' => 'required|string',
+        ]);
+
+        $user = $request->user();
+
+        DB::table('user_fcm_tokens')
+            ->where('user_id', $user->user_id)
+            ->where('fcm_token', $request->fcm_token)
+            ->update([
+                'is_active' => false,
+                'logged_out_at' => now(),
                 'updated_at' => now(),
             ]);
 
         return response()->json([
-            'message' => 'FCM token berhasil disimpan'
+            'message' => 'FCM token berhasil dinonaktifkan',
         ]);
     }
 

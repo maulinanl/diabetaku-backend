@@ -296,10 +296,23 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
-        $request->user()->currentAccessToken()->delete();
+        $user = $request->user();
+
+        if ($request->filled('fcm_token')) {
+            DB::table('user_fcm_tokens')
+                ->where('user_id', $user->user_id)
+                ->where('fcm_token', $request->fcm_token)
+                ->update([
+                    'is_active' => false,
+                    'logged_out_at' => now(),
+                    'updated_at' => now(),
+                ]);
+        }
+
+        $user->currentAccessToken()->delete();
 
         return response()->json([
-            'message' => 'Logout berhasil'
+            'message' => 'Logout berhasil',
         ]);
     }
 

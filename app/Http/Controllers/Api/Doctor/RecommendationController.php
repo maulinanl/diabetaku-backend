@@ -45,10 +45,10 @@ class RecommendationController extends Controller
                     $title,
                     $message,
                     [
-                        'notification_id' => $notificationId,
-                        'reference_id' => $referenceId ?? '',
-                        'reference_type' => $referenceType ?? '',
-                        'notification_type_id' => $typeId,
+                        'notification_id' => (string) $notificationId,
+                        'reference_id' => (string) ($referenceId ?? ''),
+                        'reference_type' => (string) ($referenceType ?? ''),
+                        'notification_type_id' => (string) $typeId,
                     ]
                 );
             } catch (\Throwable $e) {

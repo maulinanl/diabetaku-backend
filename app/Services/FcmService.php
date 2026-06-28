@@ -11,7 +11,7 @@ class FcmService
 {
     private function getCredentials(): array
     {
-        $credentialsPath = env('FIREBASE_CREDENTIALS');
+        $credentialsPath = config('services.firebase.credentials');
 
         if (!$credentialsPath) {
             throw new \Exception('FIREBASE_CREDENTIALS belum diatur di file .env');
@@ -137,51 +137,55 @@ class FcmService
         return $payloadData;
     }
 
-    public function sendToUser($userId, string $title, string $body, array $data = []): bool
+    public function sendToUser($userId, $title, $body, $data = [])
     {
-        $token = DB::table('users')
+        $tokens = DB::table('user_fcm_tokens')
             ->where('user_id', $userId)
-            ->value('fcm_token');
+            ->where('is_active', true)
+            ->whereNotNull('fcm_token')
+            ->distinct()
+            ->pluck('fcm_token')
+            ->toArray();
 
-        if (!$token) {
-            Log::warning('User belum punya FCM token', [
+        if (empty($tokens)) {
+            Log::info('Tidak ada FCM token aktif untuk user', [
                 'user_id' => $userId,
             ]);
 
             return false;
         }
 
-        $sent = $this->sendToToken($token, $title, $body, $data);
+        $successCount = 0;
 
-        return $sent;
-    }
+        foreach ($tokens as $token) {
+            $sent = $this->sendToToken($token, $title, $body, $data);
 
-    public function sendToToken(string $token, string $title, string $body, array $data = []): bool
-    {
-        $accessToken = $this->getAccessToken();
-
-        if (!$accessToken) {
-            Log::error('FCM access token kosong, push notification dibatalkan.');
-
-            return false;
+            if ($sent) {
+                $successCount++;
+            }
         }
 
+        return $successCount > 0;
+    }
+
+    public function sendToToken($token, $title, $body, $data = [])
+    {
         try {
             $credentials = $this->getCredentials();
+            $accessToken = $this->getAccessToken();
 
-            $projectId = env('FIREBASE_PROJECT_ID') ?: $credentials['project_id'];
-
-            if (!$projectId) {
-                Log::error('Firebase project ID tidak ditemukan.');
-
+            if (!$accessToken) {
+                Log::error('Firebase access token kosong');
                 return false;
             }
 
+            $projectId = $credentials['project_id'];
             $payloadData = $this->normalizeData($data);
 
             $response = Http::withToken($accessToken)
                 ->acceptJson()
-                ->timeout(20)
+                ->asJson()
+                ->timeout(15)
                 ->post("https://fcm.googleapis.com/v1/projects/{$projectId}/messages:send", [
                     'message' => [
                         'token' => $token,
@@ -200,25 +204,42 @@ class FcmService
                     ],
                 ]);
 
-            if (!$response->successful()) {
-                Log::error('Gagal kirim FCM notification', [
-                    'status' => $response->status(),
-                    'body' => $response->body(),
-                    'title' => $title,
-                    'data' => $payloadData,
-                ]);
-
-                return false;
+            if ($response->successful()) {
+                return true;
             }
 
-            Log::info('FCM notification berhasil dikirim', [
-                'response' => $response->json(),
-                'title' => $title,
+            $responseBody = $response->json();
+
+            Log::error('Gagal mengirim FCM HTTP v1', [
+                'status' => $response->status(),
+                'body' => $responseBody,
             ]);
 
-            return true;
+            $errorStatus = $responseBody['error']['status'] ?? null;
+            $errorMessage = $responseBody['error']['message'] ?? '';
+
+            if (
+                $errorStatus === 'NOT_FOUND' ||
+                $errorStatus === 'INVALID_ARGUMENT' ||
+                str_contains($errorMessage, 'Requested entity was not found')
+            ) {
+                DB::table('user_fcm_tokens')
+                    ->where('fcm_token', $token)
+                    ->update([
+                        'is_active' => false,
+                        'logged_out_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+
+                Log::warning('FCM token dinonaktifkan karena invalid/unregistered', [
+                    'token' => $token,
+                    'error_status' => $errorStatus,
+                ]);
+            }
+
+            return false;
         } catch (\Throwable $e) {
-            Log::error('Exception saat kirim FCM notification', [
+            Log::error('Error saat mengirim FCM HTTP v1', [
                 'message' => $e->getMessage(),
             ]);
 
