@@ -44,7 +44,8 @@ class DoctorController extends Controller
         }
 
         DB::table('doctors')->where('doctor_id', $doctorId)->update([
-            'verification_status' => 'Diverifikasi',
+            'verification_status' => 'Disetujui',
+            'verified_at' => now(),
             'updated_at' => now(),
         ]);
 
@@ -68,11 +69,12 @@ class DoctorController extends Controller
 
         DB::table('doctors')->where('doctor_id', $doctorId)->update([
             'verification_status' => 'Ditolak',
+            'verified_at' => null,
             'updated_at' => now(),
         ]);
 
         DB::table('users')->where('user_id', $doctor->user_id)->update([
-            'account_status' => 'Nonaktif',
+            'account_status' => 'Tidak Aktif',
             'updated_at' => now(),
         ]);
 

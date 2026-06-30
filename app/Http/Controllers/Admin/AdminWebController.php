@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Mail;
 use Carbon\Carbon;
+use Illuminate\Validation\Rule;
 
 class AdminWebController extends Controller
 {
@@ -69,6 +70,8 @@ class AdminWebController extends Controller
                 'parameter_name' => 'Nama Parameter',
                 'default_min' => 'Nilai Minimum',
                 'default_max' => 'Nilai Maksimum',
+                'valid_min' => 'Rentang Valid Minimum',
+                'valid_max' => 'Rentang Valid Maksimum',
                 'unit' => 'Satuan',
             ],
         ],
@@ -78,6 +81,9 @@ class AdminWebController extends Controller
             'primary_key' => 'medication_id',
             'fields' => [
                 'medication_name' => 'Nama Obat',
+                'dosage_form' => 'Bentuk Sediaan',
+                'value' => 'Nilai Dosis',
+                'unit' => 'Satuan',
                 'description' => 'Deskripsi',
             ],
         ],
@@ -216,7 +222,7 @@ class AdminWebController extends Controller
             DB::table('users')
                 ->where('user_id', $doctor->user_id)
                 ->update([
-                    'account_status' => 'Nonaktif',
+                    'account_status' => 'Tidak Aktif',
                     'updated_at' => now(),
                 ]);
         });
@@ -252,7 +258,7 @@ class AdminWebController extends Controller
     public function updateUserStatus(Request $request, $userId)
     {
         $request->validate([
-            'account_status' => 'required|in:Aktif,Nonaktif,Diblokir',
+            'account_status' => ['required', Rule::in(['Menunggu Verifikasi', 'Aktif', 'Tidak Aktif', 'Terkunci'])],
         ]);
 
         DB::table('users')
@@ -265,6 +271,46 @@ class AdminWebController extends Controller
         return redirect()
             ->route('admin.web.users.index')
             ->with('success', 'Status pengguna berhasil diperbarui.');
+    }
+
+    private function masterDataRules(string $type, array $config): array
+    {
+        if ($type === 'clinical-parameters') {
+            return [
+                'parameter_name' => 'required|string|max:255',
+                'default_min' => 'required|numeric',
+                'default_max' => 'required|numeric|gt:default_min',
+                'valid_min' => 'required|numeric|lte:default_min',
+                'valid_max' => 'required|numeric|gte:default_max|gt:valid_min',
+                'unit' => 'required|string|max:50',
+            ];
+        }
+
+        if ($type === 'medications') {
+            return [
+                'medication_name' => 'required|string|max:100',
+                'dosage_form' => ['nullable', Rule::in(['Tablet', 'Kapsul', 'Sirup', 'Injeksi', 'Tetes', 'Krim/Salep'])],
+                'value' => 'nullable|numeric',
+                'unit' => 'nullable|string|max:20',
+                'description' => 'nullable|string',
+            ];
+        }
+
+        if ($type === 'medication-sessions') {
+            return [
+                'session_name' => 'required|string|max:100',
+                'start_time' => 'required|date_format:H:i',
+                'end_time' => 'required|date_format:H:i',
+                'default_reminder_time' => 'required|date_format:H:i',
+            ];
+        }
+
+        $rules = [];
+        foreach ($config['fields'] as $field => $label) {
+            $rules[$field] = 'required|string|max:255';
+        }
+
+        return $rules;
     }
 
     public function masterData($type = 'specializations')
@@ -297,12 +343,7 @@ class AdminWebController extends Controller
 
         $config = $this->masterConfigs[$type];
 
-        $rules = [];
-        foreach ($config['fields'] as $field => $label) {
-            $rules[$field] = 'nullable|string|max:255';
-        }
-
-        $request->validate($rules);
+        $request->validate($this->masterDataRules($type, $config));
 
         $payload = [];
         foreach ($config['fields'] as $field => $label) {
@@ -327,12 +368,7 @@ class AdminWebController extends Controller
 
         $config = $this->masterConfigs[$type];
 
-        $rules = [];
-        foreach ($config['fields'] as $field => $label) {
-            $rules[$field] = 'nullable|string|max:255';
-        }
-
-        $request->validate($rules);
+        $request->validate($this->masterDataRules($type, $config));
 
         $payload = [];
         foreach ($config['fields'] as $field => $label) {

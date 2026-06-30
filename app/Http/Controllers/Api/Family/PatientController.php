@@ -79,14 +79,14 @@ class PatientController extends Controller
     {
         $request->validate([
             'email' => 'required|email',
-            'family_id' => 'required|exists:families,family_id',
+            'family_id' => 'required|exists:caregivers,caregiver_id',
         ]);
 
         $patients = DB::table('patients as p')
             ->join('users as u', 'p.user_id', '=', 'u.user_id')
-            ->leftJoin('family_patient_relations as fpr', function ($join) use ($request) {
+            ->leftJoin('caregiver_patient_relations as fpr', function ($join) use ($request) {
                 $join->on('p.patient_id', '=', 'fpr.patient_id')
-                    ->where('fpr.family_id', '=', $request->family_id);
+                    ->where('fpr.caregiver_id', '=', $request->family_id);
             })
             ->whereRaw('LOWER(u.email) = ?', [strtolower(trim($request->email))])
             ->select(
@@ -109,14 +109,14 @@ class PatientController extends Controller
     public function requestConnection(Request $request)
     {
         $request->validate([
-            'family_id' => 'required|exists:families,family_id',
+            'family_id' => 'required|exists:caregivers,caregiver_id',
             'patient_id' => 'required|exists:patients,patient_id',
             'relation_type_id' => 'required|exists:relation_types,relation_type_id',
         ]);
 
         return DB::transaction(function () use ($request) {
-            $existingRelation = DB::table('family_patient_relations')
-                ->where('family_id', $request->family_id)
+            $existingRelation = DB::table('caregiver_patient_relations')
+                ->where('caregiver_id', $request->family_id)
                 ->where('patient_id', $request->patient_id)
                 ->first();
 
@@ -133,8 +133,8 @@ class PatientController extends Controller
             }
 
             if ($existingRelation) {
-                DB::table('family_patient_relations')
-                    ->where('family_id', $request->family_id)
+                DB::table('caregiver_patient_relations')
+                    ->where('caregiver_id', $request->family_id)
                     ->where('patient_id', $request->patient_id)
                     ->update([
                         'relation_type_id' => $request->relation_type_id,
@@ -142,17 +142,19 @@ class PatientController extends Controller
                         'requested_at' => now(),
                         'responded_at' => null,
                         'connected_at' => null,
+                        'disconnected_at' => null,
                         'updated_at' => now(),
                     ]);
             } else {
-                DB::table('family_patient_relations')->insert([
-                    'family_id' => $request->family_id,
+                DB::table('caregiver_patient_relations')->insert([
+                    'caregiver_id' => $request->family_id,
                     'patient_id' => $request->patient_id,
                     'relation_type_id' => $request->relation_type_id,
                     'status' => 'Menunggu',
                     'requested_at' => now(),
                     'responded_at' => null,
                     'connected_at' => null,
+                    'disconnected_at' => null,
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
@@ -162,9 +164,9 @@ class PatientController extends Controller
                 ->where('patient_id', $request->patient_id)
                 ->value('user_id');
 
-            $familyName = DB::table('families as f')
+            $familyName = DB::table('caregivers as f')
                 ->join('users as u', 'f.user_id', '=', 'u.user_id')
-                ->where('f.family_id', $request->family_id)
+                ->where('f.caregiver_id', $request->family_id)
                 ->value('u.full_name');
 
             $this->createNotification(
@@ -184,11 +186,11 @@ class PatientController extends Controller
 
     public function patients($familyId)
     {
-        $patients = DB::table('family_patient_relations as fpr')
+        $patients = DB::table('caregiver_patient_relations as fpr')
             ->join('patients as p', 'fpr.patient_id', '=', 'p.patient_id')
             ->join('users as u', 'p.user_id', '=', 'u.user_id')
             ->leftJoin('relation_types as rt', 'fpr.relation_type_id', '=', 'rt.relation_type_id')
-            ->where('fpr.family_id', $familyId)
+            ->where('fpr.caregiver_id', $familyId)
             ->where('fpr.status', 'Diterima')
             ->select(
                 'p.patient_id',
@@ -220,7 +222,7 @@ class PatientController extends Controller
                 'u.email',
                 'u.phone_number',
                 'u.gender',
-                'u.date_of_birth'
+                'p.date_of_birth'
             )
             ->first();
 
@@ -273,9 +275,13 @@ class PatientController extends Controller
                     ->orderByDesc('meal_date')
                     ->get(),
 
-                'medication' => DB::table('medication_consumption_logs')
-                    ->where('patient_id', $patientId)
-                    ->orderByDesc('log_date')
+                'medication' => DB::table('medication_consumption_logs as mcl')
+                    ->join('prescription_schedules as ps', 'mcl.prescription_schedule_id', '=', 'ps.prescription_schedule_id')
+                    ->join('prescriptions as prx', 'ps.prescription_id', '=', 'prx.prescription_id')
+                    ->join('doctor_patient_relations as dpr', 'prx.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+                    ->where('dpr.patient_id', $patientId)
+                    ->orderByDesc('mcl.log_date')
+                    ->select('mcl.*', 'prx.prescription_id')
                     ->get(),
             ]
         ]);
@@ -283,12 +289,23 @@ class PatientController extends Controller
 
     public function clinicalNotes($patientId)
     {
+        $data = DB::table('clinical_notes as cn')
+            ->join('doctor_patient_relations as dpr', 'cn.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+            ->join('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
+            ->join('users as u', 'd.user_id', '=', 'u.user_id')
+            ->where('dpr.patient_id', $patientId)
+            ->select(
+                'cn.*',
+                'dpr.patient_id',
+                'dpr.doctor_id',
+                'u.full_name as doctor_name'
+            )
+            ->orderByDesc('cn.created_at')
+            ->get();
+
         return response()->json([
             'message' => 'Catatan klinis pasien berhasil diambil',
-            'data' => DB::table('clinical_notes')
-                ->where('patient_id', $patientId)
-                ->orderByDesc('created_at')
-                ->get()
+            'data' => $data
         ]);
     }
 
@@ -296,17 +313,18 @@ class PatientController extends Controller
     {
         $data = DB::table('recommendations as r')
             ->join('clinical_notes as cn', 'r.clinical_note_id', '=', 'cn.clinical_note_id')
-            ->join('doctors as d', 'cn.doctor_id', '=', 'd.doctor_id')
+            ->join('doctor_patient_relations as dpr', 'cn.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+            ->join('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
             ->join('users as u', 'd.user_id', '=', 'u.user_id')
-            ->where('cn.patient_id', $patientId)
+            ->where('dpr.patient_id', $patientId)
             ->select(
                 'r.recommendation_id',
                 'r.recommendation_text',
                 'r.category',
                 'r.created_at',
                 'cn.clinical_note_id',
-                'cn.patient_id',
-                'cn.doctor_id',
+                'dpr.patient_id',
+                'dpr.doctor_id',
                 'u.full_name as doctor_name'
             )
             ->orderByDesc('r.created_at')
@@ -381,22 +399,24 @@ class PatientController extends Controller
             ->get();
 
         $medication = DB::table('medication_consumption_logs as l')
-            ->leftJoin('prescriptions as p', 'l.prescription_id', '=', 'p.prescription_id')
+            ->leftJoin('prescription_schedules as ps', 'l.prescription_schedule_id', '=', 'ps.prescription_schedule_id')
+            ->leftJoin('prescriptions as p', 'ps.prescription_id', '=', 'p.prescription_id')
+            ->leftJoin('doctor_patient_relations as dpr', 'p.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
             ->leftJoin('medications as m', 'p.medication_id', '=', 'm.medication_id')
-            ->leftJoin('prescription_schedules as ps', 'l.schedule_id', '=', 'ps.schedule_id')
             ->leftJoin('medication_sessions as ms', 'ps.session_id', '=', 'ms.session_id')
-            ->leftJoin('doctors as d', 'p.doctor_id', '=', 'd.doctor_id')
+            ->leftJoin('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
             ->leftJoin('users as du', 'd.user_id', '=', 'du.user_id')
             ->leftJoin('users as iu', 'l.input_by_user_id', '=', 'iu.user_id')
             ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
-            ->where('l.patient_id', $patientId)
+            ->where('dpr.patient_id', $patientId)
             ->orderByDesc('l.log_date')
             ->select(
                 'l.*',
+                'p.prescription_id',
                 DB::raw("COALESCE(m.medication_name, 'Obat') as medication_name"),
                 DB::raw("COALESCE(du.full_name, '-') as doctor_name"),
                 DB::raw("COALESCE(ms.session_name, ps.session_id::text, '-') as session"),
-                DB::raw("COALESCE(ps.dose_per_session::text, '-') as dose_per_session"),
+                DB::raw("TRIM(COALESCE(p.quantity::text, '-') || ' ' || COALESCE(p.quantity_unit, '')) as dose_per_session"),
                 DB::raw("COALESCE(iu.full_name, '-') as input_by_name"),
                 DB::raw($roleCase)
             )
@@ -417,16 +437,17 @@ class PatientController extends Controller
     public function disconnect($patientId, Request $request)
     {
         $request->validate([
-            'family_id' => 'required|exists:families,family_id',
+            'family_id' => 'required|exists:caregivers,caregiver_id',
         ]);
 
         return DB::transaction(function () use ($patientId, $request) {
-            $updated = DB::table('family_patient_relations')
-                ->where('family_id', $request->family_id)
+            $updated = DB::table('caregiver_patient_relations')
+                ->where('caregiver_id', $request->family_id)
                 ->where('patient_id', $patientId)
                 ->where('status', 'Diterima')
                 ->update([
                     'status' => 'Diputus',
+                    'disconnected_at' => now(),
                     'updated_at' => now(),
                 ]);
 
@@ -440,9 +461,9 @@ class PatientController extends Controller
                 ->where('patient_id', $patientId)
                 ->value('user_id');
 
-            $familyName = DB::table('families as f')
+            $familyName = DB::table('caregivers as f')
                 ->join('users as u', 'f.user_id', '=', 'u.user_id')
-                ->where('f.family_id', $request->family_id)
+                ->where('f.caregiver_id', $request->family_id)
                 ->value('u.full_name');
 
             $this->createNotification(
@@ -471,7 +492,7 @@ class PatientController extends Controller
                 'p.patient_id',
                 'u.full_name',
                 'u.gender',
-                'u.date_of_birth',
+                'p.date_of_birth',
                 'p.diabetes_type',
                 'p.diagnosis_date',
                 'p.height_cm',

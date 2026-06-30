@@ -23,7 +23,6 @@ class User extends Authenticatable implements MustVerifyEmailContract
         'password_hash',
         'full_name',
         'phone_number',
-        'date_of_birth',
         'gender',
         'account_status',
         'login_attempts',

@@ -178,7 +178,7 @@ class NotificationController extends Controller
         $data->current_relation_status = $currentStatus ?? 'Belum Terhubung';
         $data->relation_status = $currentStatus ?? 'Belum Terhubung';
         $data->status = $currentStatus ?? 'Belum Terhubung';
-        $data->connected_since = $relation->connected_at ?? $relation->accepted_at ?? null;
+        $data->connected_since = $relation->connected_at ?? null;
         $data->relation_updated_at = $relation->updated_at ?? null;
     }
 
@@ -191,7 +191,7 @@ class NotificationController extends Controller
                 'p.patient_id',
                 'u.full_name as patient_name',
                 'u.gender',
-                'u.date_of_birth',
+                'p.date_of_birth',
                 'p.diabetes_type'
             )
             ->first();
@@ -211,35 +211,37 @@ class NotificationController extends Controller
 
     private function attachFamilyDetail($data, int $familyId): void
     {
-        $family = DB::table('families as f')
-            ->join('users as u', 'f.user_id', '=', 'u.user_id')
-            ->leftJoin('family_patient_relations as fpr', function ($join) use ($data) {
-                $join->on('f.family_id', '=', 'fpr.family_id');
+        // Database terbaru memakai caregivers, tetapi response tetap mengirim alias family_id
+        // agar frontend lama tidak perlu diganti sekaligus.
+        $family = DB::table('caregivers as c')
+            ->join('users as u', 'c.user_id', '=', 'u.user_id')
+            ->leftJoin('caregiver_patient_relations as cpr', function ($join) use ($data) {
+                $join->on('c.caregiver_id', '=', 'cpr.caregiver_id');
 
-                // Kalau notifikasi ini milik pasien, ambil relasi keluarga untuk pasien itu,
-                // supaya status setelah Terima/Tolak tidak tetap terbaca Menunggu dari relasi lain.
                 $patientId = DB::table('patients')
                     ->where('user_id', $data->user_id)
                     ->value('patient_id');
 
                 if ($patientId) {
-                    $join->where('fpr.patient_id', '=', $patientId);
+                    $join->where('cpr.patient_id', '=', $patientId);
                 }
             })
-            ->leftJoin('relation_types as rt', 'fpr.relation_type_id', '=', 'rt.relation_type_id')
-            ->where('f.family_id', $familyId)
+            ->leftJoin('relation_types as rt', 'cpr.relation_type_id', '=', 'rt.relation_type_id')
+            ->where('c.caregiver_id', $familyId)
             ->select(
-                'f.family_id',
+                'c.caregiver_id',
+                DB::raw('c.caregiver_id as family_id'),
                 'u.full_name as family_name',
                 'rt.relation_name',
-                'fpr.status',
-                'fpr.requested_at',
-                'fpr.responded_at',
-                'fpr.connected_at',
-                'fpr.updated_at as relation_updated_at'
+                'cpr.status',
+                'cpr.requested_at',
+                'cpr.responded_at',
+                'cpr.connected_at',
+                'cpr.disconnected_at',
+                'cpr.updated_at as relation_updated_at'
             )
-            ->orderByDesc('fpr.updated_at')
-            ->orderByDesc('fpr.requested_at')
+            ->orderByDesc('cpr.updated_at')
+            ->orderByDesc('cpr.requested_at')
             ->first();
 
         if (!$family) {
@@ -247,6 +249,7 @@ class NotificationController extends Controller
         }
 
         $data->family_id = $family->family_id;
+        $data->caregiver_id = $family->caregiver_id;
         $data->family_name = $family->family_name;
         $data->full_name = $family->family_name;
         $data->name = $family->family_name;
@@ -257,6 +260,7 @@ class NotificationController extends Controller
         $data->requested_at = $family->requested_at ?? $data->created_at;
         $data->responded_at = $family->responded_at;
         $data->connected_at = $family->connected_at;
+        $data->disconnected_at = $family->disconnected_at;
         $data->relation_updated_at = $family->relation_updated_at;
     }
 
@@ -265,25 +269,25 @@ class NotificationController extends Controller
         $prescriptionId = (int) $data->reference_id;
 
         $prescription = DB::table('prescriptions as p')
+            ->leftJoin('doctor_patient_relations as dpr', 'p.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
             ->leftJoin('medications as m', 'p.medication_id', '=', 'm.medication_id')
-            ->leftJoin('doctors as d', 'p.doctor_id', '=', 'd.doctor_id')
+            ->leftJoin('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
             ->leftJoin('users as du', 'd.user_id', '=', 'du.user_id')
-            ->leftJoin('meal_rules as mr', 'p.meal_rule_id', '=', 'mr.meal_rule_id')
             ->where('p.prescription_id', $prescriptionId)
             ->select(
                 'p.prescription_id',
-                'p.patient_id',
-                'p.doctor_id',
+                'dpr.patient_id',
+                'dpr.doctor_id',
+                'p.doctor_patient_relation_id',
                 'p.medication_id',
-                'p.dosage',
-                'p.form',
-                'p.indication',
-                'p.meal_rule_id',
-                DB::raw('COALESCE(mr.rule_name, p.meal_rule) as meal_rule'),
+                DB::raw("TRIM(COALESCE(p.quantity::text, '') || ' ' || COALESCE(p.quantity_unit, '')) as dosage"),
+                'm.dosage_form as form',
+                DB::raw('NULL::text as indication'),
+                'p.meal_rule',
                 'p.notes',
-                'p.status',
-                'p.valid_from',
-                'p.valid_until',
+                'p.status_prescription as status',
+                'p.start_date as valid_from',
+                'p.end_date as valid_until',
                 'p.replaced_by',
                 'p.created_at as prescription_created_at',
                 'p.updated_at as prescription_updated_at',
@@ -307,15 +311,16 @@ class NotificationController extends Controller
             ->leftJoin('medication_sessions as ms', 'ps.session_id', '=', 'ms.session_id')
             ->where('ps.prescription_id', $prescriptionId)
             ->select(
-                'ps.schedule_id',
+                'ps.prescription_schedule_id as schedule_id',
+                'ps.prescription_schedule_id',
                 'ps.session_id',
                 'ms.session_name',
                 'ms.default_reminder_time',
-                'ps.dose_per_session',
-                'ps.reminder_time',
-                'ps.is_active'
+                DB::raw('ms.default_reminder_time as reminder_time'),
+                DB::raw("TRIM(COALESCE((SELECT quantity::text FROM prescriptions WHERE prescriptions.prescription_id = ps.prescription_id), '') || ' ' || COALESCE((SELECT quantity_unit FROM prescriptions WHERE prescriptions.prescription_id = ps.prescription_id), '')) as dose_per_session"),
+                DB::raw('true as is_active')
             )
-            ->orderByRaw('COALESCE(ps.reminder_time, ms.default_reminder_time)')
+            ->orderBy('ms.start_time')
             ->get();
     }
 
@@ -325,7 +330,8 @@ class NotificationController extends Controller
 
         $recommendationsQuery = DB::table('recommendations as r')
             ->join('clinical_notes as cn', 'r.clinical_note_id', '=', 'cn.clinical_note_id')
-            ->join('doctors as d', 'cn.doctor_id', '=', 'd.doctor_id')
+            ->join('doctor_patient_relations as dpr', 'cn.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+            ->join('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
             ->join('users as du', 'd.user_id', '=', 'du.user_id')
             ->select(
                 'r.recommendation_id',
@@ -403,7 +409,7 @@ class NotificationController extends Controller
         ], true)) {
             $this->attachFamilyDetail($data, (int) $data->reference_id);
 
-            // Untuk permintaan keluarga, status harus mengikuti tabel family_patient_relations.
+            // Untuk permintaan keluarga, status harus mengikuti tabel caregiver_patient_relations.
             // Jadi setelah pasien klik Terima/Tolak, detail notifikasi ikut berubah.
             if (empty($data->status) || $data->status === '-') {
                 $data->status = $this->statusFromReferenceType($referenceType, $data->title, $data->message);
@@ -421,9 +427,9 @@ class NotificationController extends Controller
                 ->where('user_id', $data->user_id)
                 ->value('patient_id');
 
-            $familyIdForUser = DB::table('families')
+            $familyIdForUser = DB::table('caregivers')
                 ->where('user_id', $data->user_id)
-                ->value('family_id');
+                ->value('caregiver_id');
 
             // Kalau penerima notifikasi adalah pasien, reference_id berisi family_id.
             // Detail harus menampilkan data keluarga, bukan data dokter.

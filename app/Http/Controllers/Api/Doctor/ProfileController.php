@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Doctor;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class ProfileController extends Controller
 {
@@ -20,7 +21,6 @@ class ProfileController extends Controller
                 'u.full_name',
                 'u.email',
                 'u.phone_number',
-                'u.date_of_birth',
                 'u.gender',
                 'd.specialization_id',
                 's.specialization_name',
@@ -47,8 +47,7 @@ class ProfileController extends Controller
         $request->validate([
             'full_name' => 'required|string|max:150',
             'phone_number' => 'nullable|string|max:20',
-            'date_of_birth' => 'nullable|date',
-            'gender' => 'required|in:Laki-laki,Perempuan',
+            'gender' => ['required', Rule::in(['Laki-laki', 'Perempuan'])],
             'specialization_id' => 'required|exists:specializations,specialization_id',
             'institution' => 'nullable|string|max:200',
         ]);
@@ -69,7 +68,6 @@ class ProfileController extends Controller
                 ->update([
                     'full_name' => $request->full_name,
                     'phone_number' => $request->phone_number,
-                    'date_of_birth' => $request->date_of_birth,
                     'gender' => $request->gender,
                     'updated_at' => now(),
                 ]);

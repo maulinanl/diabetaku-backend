@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Family;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class HealthController extends Controller
 {
@@ -86,8 +87,8 @@ class HealthController extends Controller
 
     private function hasAcceptedRelation($patientId, $inputByUserId)
     {
-        return DB::table('family_patient_relations as fpr')
-            ->join('families as f', 'fpr.family_id', '=', 'f.family_id')
+        return DB::table('caregiver_patient_relations as fpr')
+            ->join('caregivers as f', 'fpr.caregiver_id', '=', 'f.caregiver_id')
             ->where('f.user_id', $inputByUserId)
             ->where('fpr.patient_id', $patientId)
             ->where('fpr.status', 'Diterima')
@@ -141,7 +142,7 @@ class HealthController extends Controller
     {
         $request->validate([
             'input_by_user_id' => 'required|exists:users,user_id',
-            'measurement_type' => 'required|in:Puasa,Dua Jam Setelah Makan,Sewaktu',
+            'measurement_type' => ['required', Rule::in(['Puasa', 'Dua Jam Setelah Makan', 'Sewaktu'])],
             'glucose_value' => 'required|numeric',
             'measured_at' => 'required|date',
         ]);
@@ -184,7 +185,6 @@ class HealthController extends Controller
             'systolic' => 'nullable|integer',
             'diastolic' => 'nullable|integer',
             'weight_kg' => 'nullable|numeric',
-            'bmi' => 'nullable|numeric',
             'measured_at' => 'required|date',
         ]);
 
@@ -198,7 +198,6 @@ class HealthController extends Controller
                 'systolic' => $request->systolic,
                 'diastolic' => $request->diastolic,
                 'weight_kg' => $request->weight_kg,
-                'bmi' => $request->bmi,
                 'validation_status' => 'Menunggu',
                 'measured_at' => $request->measured_at,
                 'created_at' => now(),
@@ -227,7 +226,7 @@ class HealthController extends Controller
             'input_by_user_id' => 'required|exists:users,user_id',
             'activity_type_id' => 'required|exists:activity_types,activity_type_id',
             'duration_minutes' => 'required|integer|min:1',
-            'intensity' => 'required|in:Ringan,Sedang,Berat',
+            'intensity' => ['required', Rule::in(['Ringan', 'Sedang', 'Berat'])],
             'activity_date' => 'required|date',
         ]);
 
@@ -312,28 +311,44 @@ class HealthController extends Controller
         $request->validate([
             'input_by_user_id' => 'required|exists:users,user_id',
             'prescription_id' => 'required|exists:prescriptions,prescription_id',
-            'schedule_id' => 'required|exists:prescription_schedules,schedule_id',
+            'prescription_schedule_id' => 'required|exists:prescription_schedules,prescription_schedule_id',
             'log_date' => 'required|date',
-            'status' => 'required|in:Diminum,Tidak Diminum,Terlambat',
+            'status' => ['required', Rule::in(['Diminum', 'Terlewat', 'Dibatalkan'])],
             'note' => 'nullable|string|max:500',
         ]);
 
         $denied = $this->denyIfNoRelation($patientId, $request->input_by_user_id);
         if ($denied) return $denied;
 
-        return DB::transaction(function () use ($request, $patientId) {
+        $scheduleId = $request->prescription_schedule_id;
+
+        $schedule = DB::table('prescription_schedules as ps')
+            ->join('prescriptions as p', 'ps.prescription_id', '=', 'p.prescription_id')
+            ->join('doctor_patient_relations as dpr', 'p.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+            ->where('ps.prescription_schedule_id', $scheduleId)
+            ->where('p.prescription_id', $request->prescription_id)
+            ->where('dpr.patient_id', $patientId)
+            ->select('ps.prescription_schedule_id')
+            ->first();
+
+        if (!$schedule) {
+            return response()->json([
+                'message' => 'Jadwal resep tidak sesuai dengan pasien'
+            ], 422);
+        }
+
+        $status = $request->status;
+
+        return DB::transaction(function () use ($request, $patientId, $scheduleId, $status) {
             $existing = DB::table('medication_consumption_logs')
-                ->where('patient_id', $patientId)
-                ->where('prescription_id', $request->prescription_id)
-                ->where('schedule_id', $request->schedule_id)
+                ->where('prescription_schedule_id', $scheduleId)
                 ->whereDate('log_date', $request->log_date)
                 ->first();
 
             $payload = [
                 'input_by_user_id' => $request->input_by_user_id,
-                'status' => $request->status,
-                'checked_at' => $request->status === 'Diminum' ? now() : null,
-                'cancelled_at' => $request->status === 'Tidak Diminum' ? now() : null,
+                'status' => $status,
+                'taken_at' => $status === 'Diminum' ? now() : null,
                 'note' => $request->note,
                 'validation_status' => 'Menunggu',
                 'updated_at' => now(),
@@ -363,10 +378,7 @@ class HealthController extends Controller
             }
 
             $id = DB::table('medication_consumption_logs')->insertGetId([
-                'patient_id' => $patientId,
-                'input_by_user_id' => $request->input_by_user_id,
-                'prescription_id' => $request->prescription_id,
-                'schedule_id' => $request->schedule_id,
+                'prescription_schedule_id' => $scheduleId,
                 'log_date' => $request->log_date,
                 'created_at' => now(),
                 ...$payload,

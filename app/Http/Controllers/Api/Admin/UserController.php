@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class UserController extends Controller
 {
@@ -34,7 +35,7 @@ class UserController extends Controller
     public function updateStatus(Request $request, $userId)
     {
         $request->validate([
-            'account_status' => 'required|in:Aktif,Nonaktif,Diblokir',
+            'account_status' => ['required', Rule::in(['Menunggu Verifikasi', 'Aktif', 'Tidak Aktif', 'Terkunci'])],
         ]);
 
         $updated = DB::table('users')

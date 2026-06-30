@@ -90,15 +90,41 @@ class MasterDataController extends Controller
 
     public function prescriptionMealRules()
     {
-        $data = DB::table('meal_rules')
-            ->where('is_active', true)
-            ->orderBy('meal_rule_id')
-            ->pluck('rule_name')
-            ->values();
-
         return response()->json([
             'message' => 'Aturan minum berhasil diambil',
-            'data' => $data
+            'data' => ['Sebelum Makan', 'Sesudah Makan', 'Saat Makan', 'Sebelum Tidur', 'Bangun Tidur', 'Bebas'],
+        ]);
+    }
+
+    public function dosageForms()
+    {
+        return response()->json([
+            'message' => 'Bentuk sediaan obat berhasil diambil',
+            'data' => ['Tablet', 'Kapsul', 'Sirup', 'Injeksi', 'Tetes', 'Krim/Salep'],
+        ]);
+    }
+
+    public function recommendationCategories()
+    {
+        return response()->json([
+            'message' => 'Kategori rekomendasi berhasil diambil',
+            'data' => ['Obat', 'Pola Makan', 'Gaya Hidup'],
+        ]);
+    }
+
+    public function diabetesTypes()
+    {
+        return response()->json([
+            'message' => 'Tipe diabetes berhasil diambil',
+            'data' => ['Tipe 1', 'Tipe 2'],
+        ]);
+    }
+
+    public function genders()
+    {
+        return response()->json([
+            'message' => 'Pilihan gender berhasil diambil',
+            'data' => ['Laki-laki', 'Perempuan'],
         ]);
     }
 }

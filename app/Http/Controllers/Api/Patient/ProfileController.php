@@ -21,7 +21,7 @@ class ProfileController extends Controller
                 'u.full_name',
                 'u.email',
                 'u.phone_number',
-                'u.date_of_birth',
+                'p.date_of_birth',
                 'u.gender',
                 'p.diabetes_type',
                 'p.diagnosis_date',
@@ -75,7 +75,6 @@ class ProfileController extends Controller
                 ->update([
                     'full_name' => $request->full_name,
                     'phone_number' => $request->phone_number,
-                    'date_of_birth' => $request->date_of_birth,
                     'gender' => $request->gender,
                     'updated_at' => now(),
                 ]);
@@ -83,6 +82,7 @@ class ProfileController extends Controller
             DB::table('patients')
                 ->where('patient_id', $patientId)
                 ->update([
+                    'date_of_birth' => $request->date_of_birth,
                     'diabetes_type' => $request->diabetes_type,
                     'diagnosis_date' => $request->diagnosis_date,
                     'height_cm' => $request->height_cm,
@@ -121,25 +121,23 @@ class ProfileController extends Controller
 
         return response()->json([
             'data' => [
+                'latest_glucose' => $glucose,
+                'latest_physiological' => $physio,
                 'glucose' => [
                     'value' => $glucose?->glucose_value,
                     'status' => $glucose
-                        ? ($glucose->glucose_value > 180
-                            ? 'Tinggi'
-                            : 'Normal')
+                        ? ((float) $glucose->glucose_value > 180 ? 'Tinggi' : 'Normal')
                         : '-',
                 ],
-
                 'blood_pressure' => [
                     'value' => $physio
                         ? "{$physio->systolic}/{$physio->diastolic}"
                         : '-',
-                    'status' => 'Normal',
+                    'status' => 'Tercatat',
                 ],
-
                 'weight' => [
                     'value' => $physio?->weight_kg,
-                    'status' => 'Normal',
+                    'status' => $physio ? 'Tercatat' : '-',
                 ],
             ]
         ]);
@@ -149,9 +147,10 @@ class ProfileController extends Controller
     {
         $data = DB::table('recommendations as r')
             ->join('clinical_notes as cn', 'r.clinical_note_id', '=', 'cn.clinical_note_id')
-            ->join('doctors as d', 'cn.doctor_id', '=', 'd.doctor_id')
+            ->join('doctor_patient_relations as dpr', 'cn.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+            ->join('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
             ->join('users as u', 'd.user_id', '=', 'u.user_id')
-            ->where('cn.patient_id', $patientId)
+            ->where('dpr.patient_id', $patientId)
             ->select(
                 'r.recommendation_id',
                 'r.recommendation_text',
@@ -174,9 +173,10 @@ class ProfileController extends Controller
 
         $latestRecommendation = DB::table('recommendations as r')
             ->join('clinical_notes as cn', 'r.clinical_note_id', '=', 'cn.clinical_note_id')
-            ->join('doctors as d', 'cn.doctor_id', '=', 'd.doctor_id')
+            ->join('doctor_patient_relations as dpr', 'cn.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+            ->join('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
             ->join('users as u', 'd.user_id', '=', 'u.user_id')
-            ->where('cn.patient_id', $patientId)
+            ->where('dpr.patient_id', $patientId)
             ->select(
                 'r.recommendation_id',
                 'r.recommendation_text',
@@ -202,9 +202,12 @@ class ProfileController extends Controller
             ->whereDate('meal_date', $today)
             ->exists();
 
-        $medicationDone = DB::table('medication_consumption_logs')
-            ->where('patient_id', $patientId)
-            ->whereDate('log_date', $today)
+        $medicationDone = DB::table('medication_consumption_logs as l')
+            ->join('prescription_schedules as ps', 'l.prescription_schedule_id', '=', 'ps.prescription_schedule_id')
+            ->join('prescriptions as p', 'ps.prescription_id', '=', 'p.prescription_id')
+            ->join('doctor_patient_relations as dpr', 'p.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+            ->where('dpr.patient_id', $patientId)
+            ->whereDate('l.log_date', $today)
             ->exists();
 
         $items = [
@@ -232,6 +235,13 @@ class ProfileController extends Controller
             + DB::table('meal_records')
                 ->where('patient_id', $patientId)
                 ->where('validation_status', 'Menunggu')
+                ->count()
+            + DB::table('medication_consumption_logs as l')
+                ->join('prescription_schedules as ps', 'l.prescription_schedule_id', '=', 'ps.prescription_schedule_id')
+                ->join('prescriptions as p', 'ps.prescription_id', '=', 'p.prescription_id')
+                ->join('doctor_patient_relations as dpr', 'p.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+                ->where('dpr.patient_id', $patientId)
+                ->where('l.validation_status', 'Menunggu')
                 ->count();
 
         return response()->json([

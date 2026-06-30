@@ -8,6 +8,17 @@ use Illuminate\Support\Facades\DB;
 
 class ClinicalNoteController extends Controller
 {
+    private function activeRelationId(int $doctorId, int $patientId): ?int
+    {
+        $id = DB::table('doctor_patient_relations')
+            ->where('doctor_id', $doctorId)
+            ->where('patient_id', $patientId)
+            ->where('status', 'Diterima')
+            ->value('doctor_patient_relation_id');
+
+        return $id === null ? null : (int) $id;
+    }
+
     public function store(Request $request, $patientId)
     {
         $request->validate([
@@ -18,9 +29,16 @@ class ClinicalNoteController extends Controller
             'follow_up_date' => 'nullable|date',
         ]);
 
+        $relationId = $this->activeRelationId((int) $request->doctor_id, (int) $patientId);
+
+        if (!$relationId) {
+            return response()->json([
+                'message' => 'Relasi dokter dan pasien aktif tidak ditemukan'
+            ], 404);
+        }
+
         $id = DB::table('clinical_notes')->insertGetId([
-            'doctor_id' => $request->doctor_id,
-            'patient_id' => $patientId,
+            'doctor_patient_relation_id' => $relationId,
             'patient_condition' => $request->patient_condition,
             'doctor_note' => $request->doctor_note,
             'treatment_plan' => $request->treatment_plan,
@@ -32,7 +50,8 @@ class ClinicalNoteController extends Controller
         return response()->json([
             'message' => 'Catatan klinis berhasil disimpan',
             'data' => [
-                'clinical_note_id' => $id
+                'clinical_note_id' => $id,
+                'doctor_patient_relation_id' => $relationId,
             ]
         ], 201);
     }
@@ -40,11 +59,14 @@ class ClinicalNoteController extends Controller
     public function getByPatient($patientId)
     {
         $notes = DB::table('clinical_notes as cn')
-            ->join('doctors as d', 'cn.doctor_id', '=', 'd.doctor_id')
+            ->join('doctor_patient_relations as dpr', 'cn.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+            ->join('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
             ->join('users as u', 'd.user_id', '=', 'u.user_id')
-            ->where('cn.patient_id', $patientId)
+            ->where('dpr.patient_id', $patientId)
             ->select(
                 'cn.*',
+                'dpr.patient_id',
+                'dpr.doctor_id',
                 'u.full_name as doctor_name'
             )
             ->orderByDesc('cn.created_at')
@@ -59,13 +81,16 @@ class ClinicalNoteController extends Controller
     public function show($clinicalNoteId)
     {
         $note = DB::table('clinical_notes as cn')
-            ->join('doctors as d', 'cn.doctor_id', '=', 'd.doctor_id')
+            ->join('doctor_patient_relations as dpr', 'cn.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+            ->join('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
             ->join('users as du', 'd.user_id', '=', 'du.user_id')
-            ->join('patients as p', 'cn.patient_id', '=', 'p.patient_id')
+            ->join('patients as p', 'dpr.patient_id', '=', 'p.patient_id')
             ->join('users as pu', 'p.user_id', '=', 'pu.user_id')
             ->where('cn.clinical_note_id', $clinicalNoteId)
             ->select(
                 'cn.*',
+                'dpr.doctor_id',
+                'dpr.patient_id',
                 'du.full_name as doctor_name',
                 'pu.full_name as patient_name'
             )

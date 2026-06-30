@@ -5,21 +5,23 @@ namespace App\Http\Controllers\Api\Family;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class ProfileController extends Controller
 {
     public function show($familyId)
     {
-        $profile = DB::table('families as f')
+        $profile = DB::table('caregivers as f')
             ->join('users as u', 'f.user_id', '=', 'u.user_id')
-            ->where('f.family_id', $familyId)
+            ->where('f.caregiver_id', $familyId)
             ->select(
-                'f.family_id',
+                'f.caregiver_id as family_id',
+                'f.caregiver_id',
                 'u.user_id',
                 'u.full_name',
                 'u.email',
                 'u.phone_number',
-                'u.date_of_birth',
+                DB::raw('NULL as date_of_birth'),
                 'u.gender',
                 'u.email_verified_at',
                 'u.account_status'
@@ -32,8 +34,8 @@ class ProfileController extends Controller
             ], 404);
         }
 
-        $totalPatients = DB::table('family_patient_relations')
-            ->where('family_id', $familyId)
+        $totalPatients = DB::table('caregiver_patient_relations')
+            ->where('caregiver_id', $familyId)
             ->where('status', 'Diterima')
             ->count();
 
@@ -57,11 +59,11 @@ class ProfileController extends Controller
             'full_name' => 'required|string|max:150',
             'phone_number' => 'nullable|string|max:20',
             'date_of_birth' => 'nullable|date',
-            'gender' => 'required|in:Laki-laki,Perempuan',
+            'gender' => ['required', Rule::in(['Laki-laki', 'Perempuan'])],
         ]);
 
-        $family = DB::table('families')
-            ->where('family_id', $familyId)
+        $family = DB::table('caregivers')
+            ->where('caregiver_id', $familyId)
             ->first();
 
         if (!$family) {

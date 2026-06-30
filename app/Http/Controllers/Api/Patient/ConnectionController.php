@@ -96,14 +96,15 @@ class ConnectionController extends Controller
 
     public function connectedFamilies($patientId)
     {
-        $families = DB::table('family_patient_relations as fpr')
-            ->join('families as f', 'fpr.family_id', '=', 'f.family_id')
+        $families = DB::table('caregiver_patient_relations as fpr')
+            ->join('caregivers as f', 'fpr.caregiver_id', '=', 'f.caregiver_id')
             ->join('users as u', 'f.user_id', '=', 'u.user_id')
             ->join('relation_types as rt', 'fpr.relation_type_id', '=', 'rt.relation_type_id')
             ->where('fpr.patient_id', $patientId)
             ->where('fpr.status', 'Diterima')
             ->select(
-                'fpr.family_id',
+                'fpr.caregiver_id as family_id',
+                'fpr.caregiver_id',
                 'u.full_name as family_name',
                 'u.phone_number',
                 'rt.relation_name',
@@ -121,14 +122,15 @@ class ConnectionController extends Controller
 
     public function incomingRequests($patientId)
     {
-        $requests = DB::table('family_patient_relations as fpr')
-            ->join('families as f', 'fpr.family_id', '=', 'f.family_id')
+        $requests = DB::table('caregiver_patient_relations as fpr')
+            ->join('caregivers as f', 'fpr.caregiver_id', '=', 'f.caregiver_id')
             ->join('users as u', 'f.user_id', '=', 'u.user_id')
             ->join('relation_types as rt', 'fpr.relation_type_id', '=', 'rt.relation_type_id')
             ->where('fpr.patient_id', $patientId)
             ->where('fpr.status', 'Menunggu')
             ->select(
-                'fpr.family_id',
+                'fpr.caregiver_id as family_id',
+                'fpr.caregiver_id',
                 'u.full_name as family_name',
                 'rt.relation_name',
                 'fpr.status',
@@ -205,6 +207,7 @@ class ConnectionController extends Controller
                     'requested_at' => now(),
                     'responded_at' => null,
                     'connected_at' => null,
+                    'disconnected_at' => null,
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]
@@ -247,6 +250,7 @@ class ConnectionController extends Controller
                 ->where('status', 'Diterima')
                 ->update([
                     'status' => 'Diputus',
+                    'disconnected_at' => now(),
                     'updated_at' => now(),
                 ]);
 
@@ -290,18 +294,19 @@ class ConnectionController extends Controller
     {
         $request->validate([
             'patient_id' => 'required|exists:patients,patient_id',
-            'family_id' => 'required|exists:families,family_id',
+            'family_id' => 'required|exists:caregivers,caregiver_id',
         ]);
 
         DB::transaction(function () use ($request) {
-            $updated = DB::table('family_patient_relations')
+            $updated = DB::table('caregiver_patient_relations')
                 ->where('patient_id', $request->patient_id)
-                ->where('family_id', $request->family_id)
+                ->where('caregiver_id', $request->family_id)
                 ->where('status', 'Menunggu')
                 ->update([
                     'status' => 'Diterima',
                     'responded_at' => now(),
                     'connected_at' => now(),
+                    'disconnected_at' => null,
                     'updated_at' => now(),
                 ]);
 
@@ -309,8 +314,8 @@ class ConnectionController extends Controller
                 throw new \Exception('Permintaan tidak ditemukan atau sudah diproses');
             }
 
-            $familyUserId = DB::table('families')
-                ->where('family_id', $request->family_id)
+            $familyUserId = DB::table('caregivers')
+                ->where('caregiver_id', $request->family_id)
                 ->value('user_id');
 
             $patientName = DB::table('patients as p')
@@ -337,13 +342,13 @@ class ConnectionController extends Controller
     {
         $request->validate([
             'patient_id' => 'required|exists:patients,patient_id',
-            'family_id' => 'required|exists:families,family_id',
+            'family_id' => 'required|exists:caregivers,caregiver_id',
         ]);
 
         DB::transaction(function () use ($request) {
-            DB::table('family_patient_relations')
+            DB::table('caregiver_patient_relations')
                 ->where('patient_id', $request->patient_id)
-                ->where('family_id', $request->family_id)
+                ->where('caregiver_id', $request->family_id)
                 ->where('status', 'Menunggu')
                 ->update([
                     'status' => 'Ditolak',
@@ -351,8 +356,8 @@ class ConnectionController extends Controller
                     'updated_at' => now(),
                 ]);
 
-            $familyUserId = DB::table('families')
-                ->where('family_id', $request->family_id)
+            $familyUserId = DB::table('caregivers')
+                ->where('caregiver_id', $request->family_id)
                 ->value('user_id');
 
             $patientName = DB::table('patients as p')
@@ -382,17 +387,18 @@ class ConnectionController extends Controller
         ]);
 
         return DB::transaction(function () use ($request, $familyId) {
-            DB::table('family_patient_relations')
+            DB::table('caregiver_patient_relations')
                 ->where('patient_id', $request->patient_id)
-                ->where('family_id', $familyId)
+                ->where('caregiver_id', $familyId)
                 ->where('status', 'Diterima')
                 ->update([
                     'status' => 'Diputus',
+                    'disconnected_at' => now(),
                     'updated_at' => now(),
                 ]);
 
-            $familyUserId = DB::table('families')
-                ->where('family_id', $familyId)
+            $familyUserId = DB::table('caregivers')
+                ->where('caregiver_id', $familyId)
                 ->value('user_id');
 
             $patientName = DB::table('patients as p')

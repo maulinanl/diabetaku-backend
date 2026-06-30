@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api\Patient;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class PatientController extends Controller
@@ -12,9 +11,10 @@ class PatientController extends Controller
     {
         $latestRecommendation = DB::table('recommendations as r')
             ->join('clinical_notes as cn', 'r.clinical_note_id', '=', 'cn.clinical_note_id')
-            ->join('doctors as d', 'cn.doctor_id', '=', 'd.doctor_id')
+            ->join('doctor_patient_relations as dpr', 'cn.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+            ->join('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
             ->join('users as u', 'd.user_id', '=', 'u.user_id')
-            ->where('cn.patient_id', $patientId)
+            ->where('dpr.patient_id', $patientId)
             ->select(
                 'r.recommendation_id',
                 'r.clinical_note_id',
@@ -31,25 +31,24 @@ class PatientController extends Controller
                 ->where('patient_id', $patientId)
                 ->where('validation_status', 'Menunggu')
                 ->count()
-            +
-            DB::table('physiological_records')
+            + DB::table('physiological_records')
                 ->where('patient_id', $patientId)
                 ->where('validation_status', 'Menunggu')
                 ->count()
-            +
-            DB::table('activity_records')
+            + DB::table('activity_records')
                 ->where('patient_id', $patientId)
                 ->where('validation_status', 'Menunggu')
                 ->count()
-            +
-            DB::table('meal_records')
+            + DB::table('meal_records')
                 ->where('patient_id', $patientId)
                 ->where('validation_status', 'Menunggu')
                 ->count()
-            +
-            DB::table('medication_consumption_logs')
-                ->where('patient_id', $patientId)
-                ->where('validation_status', 'Menunggu')
+            + DB::table('medication_consumption_logs as l')
+                ->join('prescription_schedules as ps', 'l.prescription_schedule_id', '=', 'ps.prescription_schedule_id')
+                ->join('prescriptions as p', 'ps.prescription_id', '=', 'p.prescription_id')
+                ->join('doctor_patient_relations as dpr', 'p.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+                ->where('dpr.patient_id', $patientId)
+                ->where('l.validation_status', 'Menunggu')
                 ->count();
 
         $today = now()->toDateString();
@@ -60,9 +59,12 @@ class PatientController extends Controller
                 ->whereDate('measured_at', $today)
                 ->exists(),
 
-            'medication' => DB::table('medication_consumption_logs')
-                ->where('patient_id', $patientId)
-                ->whereDate('log_date', $today)
+            'medication' => DB::table('medication_consumption_logs as l')
+                ->join('prescription_schedules as ps', 'l.prescription_schedule_id', '=', 'ps.prescription_schedule_id')
+                ->join('prescriptions as p', 'ps.prescription_id', '=', 'p.prescription_id')
+                ->join('doctor_patient_relations as dpr', 'p.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+                ->where('dpr.patient_id', $patientId)
+                ->whereDate('l.log_date', $today)
                 ->exists(),
 
             'activity' => DB::table('activity_records')

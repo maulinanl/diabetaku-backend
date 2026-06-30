@@ -5,11 +5,10 @@ namespace App\Http\Controllers\Api;
 use App\Models\User;
 use App\Models\Doctor;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
+use Illuminate\Validation\Rule;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Events\PasswordReset;
 use App\Http\Controllers\Controller;
@@ -23,7 +22,7 @@ class AuthController extends Controller
             'full_name' => 'required|string|max:150',
             'email' => 'required|email|unique:users,email',
             'phone_number' => 'required|string|max:20',
-            'gender' => 'required|in:Laki-laki,Perempuan',
+            'gender' => ['required', Rule::in(['Laki-laki', 'Perempuan'])],
             'password' => 'required|string|min:8|confirmed',
             'specialization_id' => 'required|exists:specializations,specialization_id',
             'str_number' => 'required|string|max:50|unique:doctors,str_number',
@@ -79,8 +78,8 @@ class AuthController extends Controller
             'email' => 'required|email|unique:users,email',
             'phone_number' => 'required|string|max:20',
             'password' => 'required|min:8|confirmed',
-            'gender' => 'required',
-            'diabetes_type' => 'required',
+            'gender' => ['required', Rule::in(['Laki-laki', 'Perempuan'])],
+            'diabetes_type' => ['required', Rule::in(['Tipe 1', 'Tipe 2'])],
             'date_of_birth' => 'required|date',
             'diagnosis_date' => 'required|date',
             'height_cm' => 'required|numeric',
@@ -95,7 +94,6 @@ class AuthController extends Controller
                 'password_hash' => Hash::make($request->password),
                 'full_name' => $request->full_name,
                 'phone_number' => $request->phone_number,
-                'date_of_birth' => $request->date_of_birth,
                 'gender' => $request->gender,
                 'account_status' => 'Aktif',
                 'created_at' => now(),
@@ -104,6 +102,7 @@ class AuthController extends Controller
 
             DB::table('patients')->insert([
                 'user_id' => $userId,
+                'date_of_birth' => $request->date_of_birth,
                 'diabetes_type' => $request->diabetes_type,
                 'diagnosis_date' => $request->diagnosis_date,
                 'height_cm' => $request->height_cm,
@@ -131,8 +130,7 @@ class AuthController extends Controller
             'email' => 'required|email|unique:users,email',
             'password' => 'required|string|min:8',
             'phone_number' => 'nullable|string|max:20',
-            'date_of_birth' => 'nullable|date',
-            'gender' => 'required|in:Laki-laki,Perempuan',
+            'gender' => ['required', Rule::in(['Laki-laki', 'Perempuan'])],
         ]);
 
         $data = DB::transaction(function () use ($request) {
@@ -142,22 +140,23 @@ class AuthController extends Controller
                 'password_hash' => Hash::make($request->password),
                 'full_name' => $request->full_name,
                 'phone_number' => $request->phone_number,
-                'date_of_birth' => $request->date_of_birth,
                 'gender' => $request->gender,
                 'account_status' => 'Aktif',
                 'created_at' => now(),
                 'updated_at' => now(),
             ], 'user_id');
 
-            $familyId = DB::table('families')->insertGetId([
+            $caregiverId = DB::table('caregivers')->insertGetId([
                 'user_id' => $userId,
                 'created_at' => now(),
                 'updated_at' => now(),
-            ], 'family_id');
+            ], 'caregiver_id');
 
             return [
                 'user_id' => $userId,
-                'family_id' => $familyId,
+                // Frontend lama masih membaca family_id, jadi tetap dikirim sebagai alias.
+                'family_id' => $caregiverId,
+                'caregiver_id' => $caregiverId,
             ];
         });
 
@@ -229,6 +228,7 @@ class AuthController extends Controller
         $doctor = null;
         $patient = null;
         $family = null;
+        $caregiver = null;
 
         if ($user->role_id == 2) {
             $doctor = Doctor::where('user_id', $user->user_id)->first();
@@ -271,9 +271,17 @@ class AuthController extends Controller
         }
 
         if ($user->role_id == 4) {
-            $family = DB::table('families')
+            $caregiver = DB::table('caregivers')
                 ->where('user_id', $user->user_id)
                 ->first();
+
+            if ($caregiver) {
+                // Alias agar Flutter lama yang masih memakai family_id tetap jalan.
+                $family = (object) array_merge((array) $caregiver, [
+                    'family_id' => $caregiver->caregiver_id,
+                    'caregiver_id' => $caregiver->caregiver_id,
+                ]);
+            }
         }
 
         $user->update([

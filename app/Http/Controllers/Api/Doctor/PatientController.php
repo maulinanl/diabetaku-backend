@@ -78,15 +78,14 @@ class PatientController extends Controller
                 FROM glucose_records gr
                 JOIN clinical_parameters cp
                     ON cp.parameter_name = CASE gr.measurement_type::text
-                        WHEN 'Puasa' THEN 'Gula Darah Puasa'
-                        WHEN 'Dua Jam Setelah Makan' THEN 'Gula Darah Postprandial'
-                        WHEN 'Sewaktu' THEN 'Gula Darah Sewaktu'
+                        WHEN 'Puasa' THEN 'Glukosa Puasa'
+                        WHEN 'Dua Jam Setelah Makan' THEN 'Glukosa 2 Jam Setelah Makan'
+                        WHEN 'Sewaktu' THEN 'Glukosa Sewaktu'
                         ELSE NULL
                     END
                 LEFT JOIN patient_custom_thresholds pct
-                    ON pct.patient_id = gr.patient_id
+                    ON pct.doctor_patient_relation_id = dpr.doctor_patient_relation_id
                     AND pct.parameter_id = cp.parameter_id
-                    AND pct.set_by_doctor_id = {$doctorId}
                 WHERE gr.patient_id = p.patient_id
                 AND COALESCE(gr.validation_status, 'Valid') = 'Valid'
                 AND gr.glucose_value IS NOT NULL
@@ -106,11 +105,10 @@ class PatientController extends Controller
             OR EXISTS (
                 SELECT 1
                 FROM physiological_records pr
-                JOIN clinical_parameters cp ON cp.parameter_name = 'Sistolik'
+                JOIN clinical_parameters cp ON cp.parameter_name = 'Tekanan Darah Sistolik'
                 LEFT JOIN patient_custom_thresholds pct
-                    ON pct.patient_id = pr.patient_id
+                    ON pct.doctor_patient_relation_id = dpr.doctor_patient_relation_id
                     AND pct.parameter_id = cp.parameter_id
-                    AND pct.set_by_doctor_id = {$doctorId}
                 WHERE pr.patient_id = p.patient_id
                 AND COALESCE(pr.validation_status, 'Valid') = 'Valid'
                 AND pr.systolic IS NOT NULL
@@ -129,11 +127,10 @@ class PatientController extends Controller
             OR EXISTS (
                 SELECT 1
                 FROM physiological_records pr
-                JOIN clinical_parameters cp ON cp.parameter_name = 'Diastolik'
+                JOIN clinical_parameters cp ON cp.parameter_name = 'Tekanan Darah Diastolik'
                 LEFT JOIN patient_custom_thresholds pct
-                    ON pct.patient_id = pr.patient_id
+                    ON pct.doctor_patient_relation_id = dpr.doctor_patient_relation_id
                     AND pct.parameter_id = cp.parameter_id
-                    AND pct.set_by_doctor_id = {$doctorId}
                 WHERE pr.patient_id = p.patient_id
                 AND COALESCE(pr.validation_status, 'Valid') = 'Valid'
                 AND pr.diastolic IS NOT NULL
@@ -146,29 +143,6 @@ class PatientController extends Controller
                 AND (
                     pr.diastolic < COALESCE(pct.custom_min, cp.default_min)
                     OR pr.diastolic > COALESCE(pct.custom_max, cp.default_max)
-                )
-            )
-
-            OR EXISTS (
-                SELECT 1
-                FROM physiological_records pr
-                JOIN clinical_parameters cp ON cp.parameter_name = 'BMI'
-                LEFT JOIN patient_custom_thresholds pct
-                    ON pct.patient_id = pr.patient_id
-                    AND pct.parameter_id = cp.parameter_id
-                    AND pct.set_by_doctor_id = {$doctorId}
-                WHERE pr.patient_id = p.patient_id
-                AND COALESCE(pr.validation_status, 'Valid') = 'Valid'
-                AND pr.bmi IS NOT NULL
-                AND pr.measured_at = (
-                    SELECT MAX(pr2.measured_at)
-                    FROM physiological_records pr2
-                    WHERE pr2.patient_id = pr.patient_id
-                    AND COALESCE(pr2.validation_status, 'Valid') = 'Valid'
-                )
-                AND (
-                    pr.bmi < COALESCE(pct.custom_min, cp.default_min)
-                    OR pr.bmi > COALESCE(pct.custom_max, cp.default_max)
                 )
             )
         ";
@@ -189,7 +163,7 @@ class PatientController extends Controller
                 'u.email',
                 'u.phone_number',
                 'u.gender',
-                'u.date_of_birth',
+                'p.date_of_birth',
                 'p.diabetes_type',
                 'dpr.status as relation_status',
                 'dpr.connected_at',
@@ -224,7 +198,7 @@ class PatientController extends Controller
                 'u.email',
                 'u.phone_number',
                 'u.gender',
-                'u.date_of_birth'
+                'p.date_of_birth'
             )
             ->first();
 
@@ -300,44 +274,56 @@ class PatientController extends Controller
     public function medication($patientId)
     {
         $data = DB::table('medication_consumption_logs as mcl')
-            ->leftJoin('prescriptions as p', 'mcl.prescription_id', '=', 'p.prescription_id')
+            ->leftJoin('prescription_schedules as ps', 'mcl.prescription_schedule_id', '=', 'ps.prescription_schedule_id')
+            ->leftJoin('prescriptions as p', 'ps.prescription_id', '=', 'p.prescription_id')
+            ->leftJoin('doctor_patient_relations as dpr', 'p.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
             ->leftJoin('medications as m', 'p.medication_id', '=', 'm.medication_id')
-            ->leftJoin('prescription_schedules as ps', 'mcl.schedule_id', '=', 'ps.schedule_id')
             ->leftJoin('medication_sessions as ms', 'ps.session_id', '=', 'ms.session_id')
-            ->where('mcl.patient_id', $patientId)
+            ->where('dpr.patient_id', $patientId)
             ->where('mcl.validation_status', 'Valid')
             ->select(
                 'mcl.log_id',
-                'mcl.patient_id',
-                'mcl.prescription_id',
-                'mcl.schedule_id',
+                'dpr.patient_id',
+                'p.prescription_id',
+                'ps.prescription_schedule_id as schedule_id',
+                'ps.prescription_schedule_id',
                 'mcl.input_by_user_id',
                 'mcl.log_date',
                 'mcl.status',
-                'mcl.checked_at',
-                'mcl.cancelled_at',
+                'mcl.taken_at',
                 'mcl.note',
                 'mcl.validation_status',
                 'm.medication_name',
-                'p.dosage',
-                'p.form',
+                DB::raw("TRIM(COALESCE(p.quantity::text, '') || ' ' || COALESCE(p.quantity_unit, '')) as dosage"),
+                'm.dosage_form as form',
                 'p.meal_rule',
                 'p.notes',
                 'ms.session_name',
                 'ms.start_time',
                 'ms.end_time',
                 'ms.default_reminder_time',
-                'ps.dose_per_session',
-                'ps.reminder_time'
+                DB::raw('ms.default_reminder_time as reminder_time'),
+                DB::raw("TRIM(COALESCE(p.quantity::text, '') || ' ' || COALESCE(p.quantity_unit, '')) as dose_per_session")
             )
             ->orderByDesc('mcl.log_date')
-            ->orderByRaw('COALESCE(ps.reminder_time, ms.default_reminder_time)')
+            ->orderBy('ms.start_time')
             ->get();
 
         return response()->json([
             'message' => 'Data konsumsi obat berhasil diambil',
             'data' => $data
         ]);
+    }
+
+    private function getDoctorPatientRelationId(int $doctorId, int $patientId): ?int
+    {
+        $id = DB::table('doctor_patient_relations')
+            ->where('doctor_id', $doctorId)
+            ->where('patient_id', $patientId)
+            ->where('status', 'Diterima')
+            ->value('doctor_patient_relation_id');
+
+        return $id === null ? null : (int) $id;
     }
 
     public function thresholds(Request $request, $patientId)
@@ -350,31 +336,18 @@ class PatientController extends Controller
             ], 422);
         }
 
-        $doctorExists = DB::table('doctors')
-            ->where('doctor_id', $doctorId)
-            ->exists();
+        $relationId = $this->getDoctorPatientRelationId((int) $doctorId, (int) $patientId);
 
-        if (!$doctorExists) {
+        if (!$relationId) {
             return response()->json([
-                'message' => 'Dokter tidak ditemukan'
-            ], 404);
-        }
-
-        $patientExists = DB::table('patients')
-            ->where('patient_id', $patientId)
-            ->exists();
-
-        if (!$patientExists) {
-            return response()->json([
-                'message' => 'Pasien tidak ditemukan'
+                'message' => 'Relasi dokter dan pasien aktif tidak ditemukan'
             ], 404);
         }
 
         $data = DB::table('clinical_parameters as cp')
-            ->leftJoin('patient_custom_thresholds as pct', function ($join) use ($patientId, $doctorId) {
+            ->leftJoin('patient_custom_thresholds as pct', function ($join) use ($relationId) {
                 $join->on('cp.parameter_id', '=', 'pct.parameter_id')
-                    ->where('pct.patient_id', '=', $patientId)
-                    ->where('pct.set_by_doctor_id', '=', $doctorId);
+                    ->where('pct.doctor_patient_relation_id', '=', $relationId);
             })
             ->select(
                 'cp.parameter_id',
@@ -386,7 +359,7 @@ class PatientController extends Controller
                 'cp.unit',
                 'pct.custom_min',
                 'pct.custom_max',
-                'pct.set_by_doctor_id'
+                'pct.doctor_patient_relation_id'
             )
             ->orderBy('cp.parameter_id')
             ->get();
@@ -405,13 +378,11 @@ class PatientController extends Controller
             'custom_max' => 'required|numeric',
         ]);
 
-        $patientExists = DB::table('patients')
-            ->where('patient_id', $patientId)
-            ->exists();
+        $relationId = $this->getDoctorPatientRelationId((int) $validated['doctor_id'], (int) $patientId);
 
-        if (!$patientExists) {
+        if (!$relationId) {
             return response()->json([
-                'message' => 'Pasien tidak ditemukan'
+                'message' => 'Relasi dokter dan pasien aktif tidak ditemukan'
             ], 404);
         }
 
@@ -448,16 +419,14 @@ class PatientController extends Controller
         }
 
         $exists = DB::table('patient_custom_thresholds')
-            ->where('patient_id', $patientId)
+            ->where('doctor_patient_relation_id', $relationId)
             ->where('parameter_id', $parameterId)
-            ->where('set_by_doctor_id', $validated['doctor_id'])
             ->exists();
 
         if ($exists) {
             DB::table('patient_custom_thresholds')
-                ->where('patient_id', $patientId)
+                ->where('doctor_patient_relation_id', $relationId)
                 ->where('parameter_id', $parameterId)
-                ->where('set_by_doctor_id', $validated['doctor_id'])
                 ->update([
                     'custom_min' => $customMin,
                     'custom_max' => $customMax,
@@ -465,9 +434,8 @@ class PatientController extends Controller
                 ]);
         } else {
             DB::table('patient_custom_thresholds')->insert([
-                'patient_id' => $patientId,
+                'doctor_patient_relation_id' => $relationId,
                 'parameter_id' => $parameterId,
-                'set_by_doctor_id' => $validated['doctor_id'],
                 'custom_min' => $customMin,
                 'custom_max' => $customMax,
                 'created_at' => now(),
@@ -486,8 +454,16 @@ class PatientController extends Controller
             'doctor_id' => 'required|exists:doctors,doctor_id',
         ]);
 
+        $relationId = $this->getDoctorPatientRelationId((int) $request->doctor_id, (int) $patientId);
+
+        if (!$relationId) {
+            return response()->json([
+                'message' => 'Relasi dokter dan pasien aktif tidak ditemukan'
+            ], 404);
+        }
+
         DB::table('patient_custom_thresholds')
-            ->where('patient_id', $patientId)
+            ->where('doctor_patient_relation_id', $relationId)
             ->where('parameter_id', $parameterId)
             ->delete();
 
@@ -509,6 +485,7 @@ class PatientController extends Controller
                 ->where('status', 'Diterima')
                 ->update([
                     'status' => 'Diputus',
+                    'disconnected_at' => now(),
                     'updated_at' => now(),
                 ]);
 
@@ -550,14 +527,15 @@ class PatientController extends Controller
 
     public function families($patientId)
     {
-        $families = DB::table('family_patient_relations as fpr')
-            ->join('families as f', 'fpr.family_id', '=', 'f.family_id')
-            ->join('users as u', 'f.user_id', '=', 'u.user_id')
-            ->leftJoin('relation_types as rt', 'fpr.relation_type_id', '=', 'rt.relation_type_id')
-            ->where('fpr.patient_id', $patientId)
-            ->where('fpr.status', 'Diterima')
+        $families = DB::table('caregiver_patient_relations as cpr')
+            ->join('caregivers as c', 'cpr.caregiver_id', '=', 'c.caregiver_id')
+            ->join('users as u', 'c.user_id', '=', 'u.user_id')
+            ->leftJoin('relation_types as rt', 'cpr.relation_type_id', '=', 'rt.relation_type_id')
+            ->where('cpr.patient_id', $patientId)
+            ->where('cpr.status', 'Diterima')
             ->select(
-                'f.family_id',
+                'c.caregiver_id',
+                DB::raw('c.caregiver_id as family_id'),
                 'u.user_id',
                 'u.full_name',
                 'u.email',
@@ -583,7 +561,7 @@ class PatientController extends Controller
                 'p.patient_id',
                 'u.full_name',
                 'u.gender',
-                'u.date_of_birth',
+                'p.date_of_birth',
                 'p.diabetes_type',
                 'dpr.requested_at'
             )
@@ -702,7 +680,7 @@ class PatientController extends Controller
                 'p.patient_id',
                 'u.full_name',
                 'u.gender',
-                'u.date_of_birth',
+                'p.date_of_birth',
                 'p.diabetes_type',
                 'dpr.requested_at',
                 'dpr.responded_at'
@@ -735,7 +713,7 @@ class PatientController extends Controller
                 'p.patient_id',
                 'u.full_name',
                 'u.gender',
-                'u.date_of_birth',
+                'p.date_of_birth',
                 'p.diabetes_type',
                 'dpr.status'
             )

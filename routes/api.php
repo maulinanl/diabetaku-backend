@@ -1,8 +1,6 @@
 <?php
 
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-use App\Services\FcmService;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\MasterDataController;
 use App\Http\Controllers\Api\Doctor\PatientController as DoctorPatientController;
@@ -54,6 +52,10 @@ Route::prefix('master')->group(function () {
     Route::get('/relation-types', [MasterDataController::class, 'relationTypes']);
     Route::get('/clinical-parameters', [MasterDataController::class, 'clinicalParameters']);
     Route::get('/prescription-meal-rules', [MasterDataController::class, 'prescriptionMealRules']);
+    Route::get('/dosage-forms', [MasterDataController::class, 'dosageForms']);
+    Route::get('/recommendation-categories', [MasterDataController::class, 'recommendationCategories']);
+    Route::get('/diabetes-types', [MasterDataController::class, 'diabetesTypes']);
+    Route::get('/genders', [MasterDataController::class, 'genders']);
 });
 
 Route::prefix('doctor')->group(function () {

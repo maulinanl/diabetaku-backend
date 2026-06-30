@@ -31,15 +31,7 @@ class HealthController extends Controller
             'updated_at' => now(),
         ], 'notification_id');
 
-        $sendPushNotification = function () use (
-            $userId,
-            $title,
-            $message,
-            $notificationId,
-            $referenceId,
-            $referenceType,
-            $typeId
-        ) {
+        $sendPushNotification = function () use ($userId, $title, $message, $notificationId, $referenceId, $referenceType, $typeId) {
             try {
                 app(\App\Services\FcmService::class)->sendToUser(
                     $userId,
@@ -72,12 +64,29 @@ class HealthController extends Controller
             ->value('u.full_name') ?? 'Pasien';
     }
 
+    private function patientIdFromMedicationLog($logId)
+    {
+        return DB::table('medication_consumption_logs as l')
+            ->join('prescription_schedules as ps', 'l.prescription_schedule_id', '=', 'ps.prescription_schedule_id')
+            ->join('prescriptions as p', 'ps.prescription_id', '=', 'p.prescription_id')
+            ->join('doctor_patient_relations as dpr', 'p.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+            ->where('l.log_id', $logId)
+            ->value('dpr.patient_id');
+    }
+
     private function notifyFamilyValidationResult($record, $recordType, $status)
     {
         $inputByUserId = $record->input_by_user_id ?? null;
         if (!$inputByUserId) return;
 
-        $patientName = $this->getPatientName($record->patient_id);
+        $patientId = $record->patient_id ?? null;
+        if (!$patientId && $recordType === 'medication') {
+            $patientId = $this->patientIdFromMedicationLog($record->log_id ?? 0);
+        }
+
+        if (!$patientId) return;
+
+        $patientName = $this->getPatientName($patientId);
 
         $label = match ($recordType) {
             'glucose' => 'data glukosa',
@@ -99,7 +108,7 @@ class HealthController extends Controller
             $status === 'Valid'
                 ? "{$patientName} menerima {$label} yang Anda tambahkan."
                 : "{$patientName} menolak {$label} yang Anda tambahkan.",
-            $record->patient_id,
+            $patientId,
             'validation_result'
         );
     }
@@ -114,7 +123,7 @@ class HealthController extends Controller
             ->join('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
             ->where('dpr.patient_id', $patientId)
             ->where('dpr.status', 'Diterima')
-            ->select('d.doctor_id', 'd.user_id')
+            ->select('dpr.doctor_patient_relation_id', 'd.doctor_id', 'd.user_id')
             ->get();
 
         foreach ($doctors as $doctor) {
@@ -136,10 +145,14 @@ class HealthController extends Controller
     private function getThreshold($patientId, $doctorId, $parameterName)
     {
         return DB::table('clinical_parameters as cp')
-            ->leftJoin('patient_custom_thresholds as pct', function ($join) use ($patientId, $doctorId) {
+            ->leftJoin('doctor_patient_relations as dpr', function ($join) use ($patientId, $doctorId) {
+                $join->where('dpr.patient_id', '=', $patientId)
+                    ->where('dpr.doctor_id', '=', $doctorId)
+                    ->where('dpr.status', '=', 'Diterima');
+            })
+            ->leftJoin('patient_custom_thresholds as pct', function ($join) {
                 $join->on('cp.parameter_id', '=', 'pct.parameter_id')
-                    ->where('pct.patient_id', '=', $patientId)
-                    ->where('pct.set_by_doctor_id', '=', $doctorId);
+                    ->on('pct.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id');
             })
             ->whereRaw('LOWER(cp.parameter_name) = LOWER(?)', [$parameterName])
             ->select(
@@ -162,9 +175,9 @@ class HealthController extends Controller
     private function checkGlucoseAbnormal($patientId, $measurementType, $glucoseValue)
     {
         $parameterName = match ($measurementType) {
-            'Puasa' => 'Gula Darah Puasa',
-            'Dua Jam Setelah Makan' => 'Gula Darah Postprandial',
-            'Sewaktu' => 'Gula Darah Sewaktu',
+            'Puasa' => 'Glukosa Puasa',
+            'Dua Jam Setelah Makan' => 'Glukosa 2 Jam Setelah Makan',
+            'Sewaktu' => 'Glukosa Sewaktu',
             default => null,
         };
 
@@ -181,14 +194,14 @@ class HealthController extends Controller
         );
     }
 
-    private function checkPhysiologicalAbnormal($patientId, $systolic = null, $diastolic = null, $bmi = null)
+    private function checkPhysiologicalAbnormal($patientId, $systolic = null, $diastolic = null)
     {
         $patientName = $this->getPatientName($patientId);
 
         if ($systolic !== null) {
             $this->notifyDoctorsIfAbnormal(
                 $patientId,
-                'Sistolik',
+                'Tekanan Darah Sistolik',
                 $systolic,
                 'Tekanan Darah Abnormal',
                 "{$patientName} memiliki tekanan darah sistolik sebesar {$systolic} mmHg, berada di luar batas normal."
@@ -198,20 +211,10 @@ class HealthController extends Controller
         if ($diastolic !== null) {
             $this->notifyDoctorsIfAbnormal(
                 $patientId,
-                'Diastolik',
+                'Tekanan Darah Diastolik',
                 $diastolic,
                 'Tekanan Darah Abnormal',
                 "{$patientName} memiliki tekanan darah diastolik sebesar {$diastolic} mmHg, berada di luar batas normal."
-            );
-        }
-
-        if ($bmi !== null) {
-            $this->notifyDoctorsIfAbnormal(
-                $patientId,
-                'BMI',
-                $bmi,
-                'BMI Abnormal',
-                "{$patientName} memiliki BMI sebesar {$bmi} kg/m2, berada di luar batas normal."
             );
         }
     }
@@ -253,7 +256,6 @@ class HealthController extends Controller
             'systolic' => 'nullable|integer',
             'diastolic' => 'nullable|integer',
             'weight_kg' => 'nullable|numeric',
-            'bmi' => 'nullable|numeric',
             'measured_at' => 'required|date',
         ]);
 
@@ -263,7 +265,6 @@ class HealthController extends Controller
             'systolic' => $request->systolic,
             'diastolic' => $request->diastolic,
             'weight_kg' => $request->weight_kg,
-            'bmi' => $request->bmi,
             'validation_status' => 'Valid',
             'measured_at' => $request->measured_at,
             'created_at' => now(),
@@ -273,8 +274,7 @@ class HealthController extends Controller
         $this->checkPhysiologicalAbnormal(
             $request->patient_id,
             $request->systolic,
-            $request->diastolic,
-            $request->bmi
+            $request->diastolic
         );
 
         return response()->json([
@@ -346,25 +346,40 @@ class HealthController extends Controller
     public function storeMedication(Request $request)
     {
         $request->validate([
-            'prescription_id' => 'required|exists:prescriptions,prescription_id',
             'patient_id' => 'required|exists:patients,patient_id',
             'input_by_user_id' => 'required|exists:users,user_id',
-            'schedule_id' => 'required|exists:prescription_schedules,schedule_id',
+            'prescription_id' => 'nullable|exists:prescriptions,prescription_id',
+            'prescription_schedule_id' => 'required|exists:prescription_schedules,prescription_schedule_id',
             'log_date' => 'required|date',
-            'status' => 'required|in:Diminum,Tidak Diminum,Terlambat',
+            'status' => 'required|in:Diminum,Terlewat,Dibatalkan',
             'note' => 'nullable|string|max:500',
         ]);
 
-        $activePrescription = DB::table('prescriptions as p')
-            ->join('prescription_schedules as ps', 'p.prescription_id', '=', 'ps.prescription_id')
-            ->where('p.prescription_id', $request->prescription_id)
-            ->where('p.patient_id', $request->patient_id)
-            ->where('ps.schedule_id', $request->schedule_id)
-            ->where('p.status', 'Aktif')
-            ->where('ps.is_active', true)
-            ->whereDate('p.valid_from', '<=', $request->log_date)
-            ->whereDate('p.valid_until', '>=', $request->log_date)
-            ->exists();
+        $scheduleId = $request->prescription_schedule_id;
+        $status = $request->status;
+
+        $activePrescription = DB::table('prescription_schedules as ps')
+            ->join('prescriptions as p', 'ps.prescription_id', '=', 'p.prescription_id')
+            ->join('doctor_patient_relations as dpr', 'p.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+            ->join('medication_sessions as ms', 'ps.session_id', '=', 'ms.session_id')
+            ->where('ps.prescription_schedule_id', $scheduleId)
+            ->when($request->prescription_id, function ($query) use ($request) {
+                $query->where('p.prescription_id', $request->prescription_id);
+            })
+            ->where('dpr.patient_id', $request->patient_id)
+            ->where('dpr.status', 'Diterima')
+            ->where('p.status_prescription', 'Aktif')
+            ->where('ms.is_active', true)
+            ->where(function ($query) use ($request) {
+                $query->whereNull('p.start_date')
+                    ->orWhereDate('p.start_date', '<=', $request->log_date);
+            })
+            ->where(function ($query) use ($request) {
+                $query->whereNull('p.end_date')
+                    ->orWhereDate('p.end_date', '>=', $request->log_date);
+            })
+            ->select('ps.prescription_schedule_id')
+            ->first();
 
         if (!$activePrescription) {
             return response()->json([
@@ -373,17 +388,16 @@ class HealthController extends Controller
         }
 
         $existing = DB::table('medication_consumption_logs')
-            ->where('prescription_id', $request->prescription_id)
-            ->where('patient_id', $request->patient_id)
-            ->where('schedule_id', $request->schedule_id)
+            ->where('prescription_schedule_id', $scheduleId)
             ->whereDate('log_date', $request->log_date)
             ->first();
 
         $payload = [
+            'prescription_schedule_id' => $scheduleId,
             'input_by_user_id' => $request->input_by_user_id,
-            'status' => $request->status,
-            'checked_at' => $request->status === 'Diminum' ? now() : null,
-            'cancelled_at' => $request->status === 'Tidak Diminum' ? now() : null,
+            'log_date' => $request->log_date,
+            'status' => $status,
+            'taken_at' => $status === 'Diminum' ? now() : null,
             'note' => $request->note,
             'validation_status' => 'Valid',
             'updated_at' => now(),
@@ -404,10 +418,6 @@ class HealthController extends Controller
         }
 
         $logId = DB::table('medication_consumption_logs')->insertGetId(array_merge($payload, [
-            'prescription_id' => $request->prescription_id,
-            'patient_id' => $request->patient_id,
-            'schedule_id' => $request->schedule_id,
-            'log_date' => $request->log_date,
             'created_at' => now(),
         ]), 'log_id');
 
@@ -425,30 +435,42 @@ class HealthController extends Controller
         $today = now()->toDateString();
 
         $data = DB::table('prescriptions as p')
+            ->join('doctor_patient_relations as dpr', 'p.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
             ->join('medications as m', 'p.medication_id', '=', 'm.medication_id')
             ->join('prescription_schedules as ps', 'p.prescription_id', '=', 'ps.prescription_id')
             ->join('medication_sessions as ms', 'ps.session_id', '=', 'ms.session_id')
-            ->leftJoin('medication_consumption_logs as l', function ($join) use ($patientId, $today) {
-                $join->on('l.prescription_id', '=', 'p.prescription_id')
-                    ->on('l.schedule_id', '=', 'ps.schedule_id')
-                    ->where('l.patient_id', '=', $patientId)
+            ->leftJoin('medication_consumption_logs as l', function ($join) use ($today) {
+                $join->on('l.prescription_schedule_id', '=', 'ps.prescription_schedule_id')
                     ->whereDate('l.log_date', '=', $today);
             })
-            ->where('p.patient_id', $patientId)
-            ->where('p.status', 'Aktif')
-            ->where('ps.is_active', true)
-            ->whereDate('p.valid_from', '<=', $today)
-            ->whereDate('p.valid_until', '>=', $today)
+            ->where('dpr.patient_id', $patientId)
+            ->where('dpr.status', 'Diterima')
+            ->where('p.status_prescription', 'Aktif')
+            ->where('ms.is_active', true)
+            ->where(function ($query) use ($today) {
+                $query->whereNull('p.start_date')
+                    ->orWhereDate('p.start_date', '<=', $today);
+            })
+            ->where(function ($query) use ($today) {
+                $query->whereNull('p.end_date')
+                    ->orWhereDate('p.end_date', '>=', $today);
+            })
             ->select(
                 'p.prescription_id',
-                'p.patient_id',
-                'p.valid_from',
-                'p.valid_until',
-                'ps.schedule_id',
+                'dpr.patient_id',
+                'p.start_date',
+                'p.end_date',
+                'p.status_prescription',
+                'ps.prescription_schedule_id',
                 'm.medication_name',
                 'm.description',
-                'p.dosage',
-                'p.form',
+                'm.dosage_form as form',
+                'm.value',
+                'm.unit',
+                'p.quantity',
+                'p.quantity_unit',
+                DB::raw("TRIM(CONCAT(COALESCE(p.quantity::TEXT, ''), ' ', COALESCE(p.quantity_unit, ''))) as dosage"),
+                DB::raw("TRIM(CONCAT(COALESCE(p.quantity::TEXT, ''), ' ', COALESCE(p.quantity_unit, ''))) as dose_per_session"),
                 'p.meal_rule',
                 'p.notes',
                 'ms.session_id',
@@ -456,17 +478,15 @@ class HealthController extends Controller
                 'ms.start_time',
                 'ms.end_time',
                 'ms.default_reminder_time',
-                'ps.dose_per_session',
-                'ps.reminder_time',
+                DB::raw('ms.default_reminder_time as reminder_time'),
                 'l.log_id',
                 'l.status as log_status',
-                'l.checked_at',
-                'l.cancelled_at',
+                'l.taken_at',
                 'l.note as log_note',
                 DB::raw("CASE WHEN l.status = 'Diminum' THEN true ELSE false END as checked"),
-                DB::raw("CASE WHEN l.log_id IS NULL THEN false ELSE true END as already_logged")
+                DB::raw('CASE WHEN l.log_id IS NULL THEN false ELSE true END as already_logged')
             )
-            ->orderByRaw('COALESCE(ps.reminder_time, ms.default_reminder_time)')
+            ->orderBy('ms.default_reminder_time')
             ->get();
 
         return response()->json([
@@ -479,7 +499,7 @@ class HealthController extends Controller
     {
         $roleCase = "
             CASE
-                WHEN r.role_name ILIKE '%family%' OR r.role_name ILIKE '%keluarga%' THEN 'Keluarga'
+                WHEN r.role_name ILIKE '%caregiver%' OR r.role_name ILIKE '%family%' OR r.role_name ILIKE '%keluarga%' THEN 'Keluarga'
                 WHEN r.role_name ILIKE '%patient%' OR r.role_name ILIKE '%pasien%' THEN 'Pasien'
                 ELSE 'Pasien'
             END as input_by_role
@@ -523,21 +543,24 @@ class HealthController extends Controller
                     ->get(),
 
                 'medication' => DB::table('medication_consumption_logs as l')
-                    ->leftJoin('prescriptions as p', 'l.prescription_id', '=', 'p.prescription_id')
+                    ->join('prescription_schedules as ps', 'l.prescription_schedule_id', '=', 'ps.prescription_schedule_id')
+                    ->join('prescriptions as p', 'ps.prescription_id', '=', 'p.prescription_id')
+                    ->join('doctor_patient_relations as dpr', 'p.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
                     ->leftJoin('medications as m', 'p.medication_id', '=', 'm.medication_id')
-                    ->leftJoin('prescription_schedules as ps', 'l.schedule_id', '=', 'ps.schedule_id')
                     ->leftJoin('medication_sessions as ms', 'ps.session_id', '=', 'ms.session_id')
                     ->leftJoin('users as iu', 'l.input_by_user_id', '=', 'iu.user_id')
                     ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
-                    ->where('l.patient_id', $patientId)
+                    ->where('dpr.patient_id', $patientId)
                     ->select(
                         'l.*',
-                        'm.medication_name',
+                        'p.prescription_id',
+                        'ps.prescription_schedule_id',
+                                'm.medication_name',
                         'ms.session_name',
                         'ms.start_time',
                         'ms.end_time',
-                        'ps.dose_per_session',
-                        DB::raw("COALESCE(ps.reminder_time, ms.default_reminder_time) as reminder_time"),
+                        DB::raw("TRIM(CONCAT(COALESCE(p.quantity::TEXT, ''), ' ', COALESCE(p.quantity_unit, ''))) as dose_per_session"),
+                        DB::raw('ms.default_reminder_time as reminder_time'),
                         DB::raw("COALESCE(iu.full_name, '-') as input_by_name"),
                         DB::raw($roleCase)
                     )
@@ -551,14 +574,15 @@ class HealthController extends Controller
     {
         $data = DB::table('recommendations as r')
             ->join('clinical_notes as cn', 'r.clinical_note_id', '=', 'cn.clinical_note_id')
-            ->join('doctors as d', 'cn.doctor_id', '=', 'd.doctor_id')
+            ->join('doctor_patient_relations as dpr', 'cn.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+            ->join('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
             ->join('users as u', 'd.user_id', '=', 'u.user_id')
-            ->where('cn.patient_id', $patientId)
+            ->where('dpr.patient_id', $patientId)
             ->select(
                 'r.recommendation_id',
                 'r.clinical_note_id',
-                'cn.patient_id',
-                'cn.doctor_id',
+                'dpr.patient_id',
+                'dpr.doctor_id',
                 'u.full_name as doctor_name',
                 'r.category',
                 'r.recommendation_text',
@@ -577,9 +601,10 @@ class HealthController extends Controller
     {
         $data = DB::table('recommendations as r')
             ->join('clinical_notes as cn', 'r.clinical_note_id', '=', 'cn.clinical_note_id')
-            ->join('doctors as d', 'cn.doctor_id', '=', 'd.doctor_id')
+            ->join('doctor_patient_relations as dpr', 'cn.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+            ->join('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
             ->join('users as u', 'd.user_id', '=', 'u.user_id')
-            ->where('cn.patient_id', $patientId)
+            ->where('dpr.patient_id', $patientId)
             ->select(
                 'r.recommendation_id',
                 'r.clinical_note_id',
@@ -608,7 +633,7 @@ class HealthController extends Controller
                 'gr.glucose_id as record_id',
                 DB::raw("CONCAT('Glukosa ', gr.measurement_type) as title"),
                 'gr.measured_at as date',
-                DB::raw("CAST(gr.glucose_value as TEXT) as value"),
+                DB::raw('CAST(gr.glucose_value as TEXT) as value'),
                 DB::raw("'mg/dL' as unit"),
                 'u.full_name as input_by',
                 DB::raw("'Keluarga' as relation")
@@ -638,7 +663,7 @@ class HealthController extends Controller
                 'ar.activity_id as record_id',
                 DB::raw("'Aktivitas Fisik' as title"),
                 'ar.activity_date as date',
-                DB::raw("CAST(ar.duration_minutes as TEXT) as value"),
+                DB::raw('CAST(ar.duration_minutes as TEXT) as value'),
                 DB::raw("'menit' as unit"),
                 'u.full_name as input_by',
                 DB::raw("'Keluarga' as relation")
@@ -660,15 +685,18 @@ class HealthController extends Controller
             );
 
         $medication = DB::table('medication_consumption_logs as l')
+            ->join('prescription_schedules as ps', 'l.prescription_schedule_id', '=', 'ps.prescription_schedule_id')
+            ->join('prescriptions as p', 'ps.prescription_id', '=', 'p.prescription_id')
+            ->join('doctor_patient_relations as dpr', 'p.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
             ->join('users as u', 'l.input_by_user_id', '=', 'u.user_id')
-            ->where('l.patient_id', $patientId)
+            ->where('dpr.patient_id', $patientId)
             ->where('l.validation_status', 'Menunggu')
             ->select(
                 DB::raw("'medication' as record_type"),
                 'l.log_id as record_id',
                 DB::raw("'Kepatuhan Obat' as title"),
                 'l.log_date as date',
-                DB::raw("l.status::TEXT as value"),
+                DB::raw('l.status::TEXT as value'),
                 DB::raw("''::TEXT as unit"),
                 'u.full_name as input_by',
                 DB::raw("'Keluarga' as relation")
@@ -693,7 +721,7 @@ class HealthController extends Controller
         $request->validate([
             'record_type' => 'required|in:glucose,physiological,activity,meal,medication',
             'record_id' => 'required|integer',
-            'status' => 'required|in:Valid,Ditolak',
+            'status' => 'required|in:Valid,Ditolak,Tidak Valid',
         ]);
 
         $tableMap = [
@@ -705,6 +733,7 @@ class HealthController extends Controller
         ];
 
         $target = $tableMap[$request->record_type];
+        $newStatus = $request->status === 'Ditolak' ? 'Tidak Valid' : $request->status;
 
         $record = DB::table($target['table'])
             ->where($target['id'], $request->record_id)
@@ -719,25 +748,25 @@ class HealthController extends Controller
         DB::table($target['table'])
             ->where($target['id'], $request->record_id)
             ->update([
-                'validation_status' => $request->status,
+                'validation_status' => $newStatus,
                 'validated_at' => now(),
                 'updated_at' => now(),
             ]);
 
-        $this->notifyFamilyValidationResult($record, $request->record_type, $request->status);
+        $this->notifyFamilyValidationResult($record, $request->record_type, $newStatus);
 
-        if ($request->status === 'Valid') {
+        if ($newStatus === 'Valid') {
             if ($request->record_type === 'glucose') {
                 $this->checkGlucoseAbnormal($record->patient_id, $record->measurement_type, $record->glucose_value);
             }
 
             if ($request->record_type === 'physiological') {
-                $this->checkPhysiologicalAbnormal($record->patient_id, $record->systolic, $record->diastolic, $record->bmi);
+                $this->checkPhysiologicalAbnormal($record->patient_id, $record->systolic, $record->diastolic);
             }
         }
 
         return response()->json([
-            'message' => $request->status === 'Valid'
+            'message' => $newStatus === 'Valid'
                 ? 'Data berhasil diterima'
                 : 'Data berhasil ditolak'
         ]);

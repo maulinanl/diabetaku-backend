@@ -5,47 +5,57 @@ namespace App\Http\Controllers\Api\Doctor;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 
 class PrescriptionController extends Controller
 {
-    private array $dosageForms = [
-        'Tablet',
-        'Kapsul',
-        'Sirup',
-        'Injeksi',
-        'Tetes',
-        'Krim/Salep',
-    ];
-
-    private function activeMealRuleRule()
+    private function mealRuleRule(): Rule
     {
-        return Rule::exists('meal_rules', 'rule_name')
-            ->where(fn ($query) => $query->where('is_active', true));
+        return Rule::in(['Sebelum Makan', 'Sesudah Makan', 'Saat Makan', 'Sebelum Tidur', 'Bangun Tidur', 'Bebas']);
     }
 
-    private function resolveMealRuleId(?string $ruleName): ?int
+    private function parseQuantity(?string $dosage, $quantity = null): ?float
     {
-        if ($ruleName === null || trim($ruleName) === '') {
+        if ($quantity !== null && $quantity !== '') {
+            return (float) $quantity;
+        }
+
+        if (!$dosage) {
             return null;
         }
 
-        $mealRuleId = DB::table('meal_rules')
-            ->where('rule_name', $ruleName)
-            ->where('is_active', true)
-            ->value('meal_rule_id');
-
-        return $mealRuleId === null ? null : (int) $mealRuleId;
-    }
-
-    private function withMealRuleId(array $data, ?string $mealRule): array
-    {
-        if (Schema::hasColumn('prescriptions', 'meal_rule_id')) {
-            $data['meal_rule_id'] = $this->resolveMealRuleId($mealRule);
+        if (preg_match('/\d+(?:[\.,]\d+)?/', $dosage, $matches)) {
+            return (float) str_replace(',', '.', $matches[0]);
         }
 
-        return $data;
+        return null;
+    }
+
+    private function quantityUnit(?string $dosage, ?string $form, $quantityUnit = null): ?string
+    {
+        if ($quantityUnit !== null && trim((string) $quantityUnit) !== '') {
+            return trim((string) $quantityUnit);
+        }
+
+        $dosage = trim((string) $dosage);
+        $form = trim((string) $form);
+
+        if ($dosage !== '') {
+            return $form !== '' ? trim($dosage . ' ' . $form) : $dosage;
+        }
+
+        return $form !== '' ? $form : null;
+    }
+
+    private function activeRelationId(int $doctorId, int $patientId): ?int
+    {
+        $id = DB::table('doctor_patient_relations')
+            ->where('doctor_id', $doctorId)
+            ->where('patient_id', $patientId)
+            ->where('status', 'Diterima')
+            ->value('doctor_patient_relation_id');
+
+        return $id === null ? null : (int) $id;
     }
 
     private function getNotificationTypeId($typeName)
@@ -74,15 +84,7 @@ class PrescriptionController extends Controller
             'updated_at' => now(),
         ], 'notification_id');
 
-        $sendPushNotification = function () use (
-            $userId,
-            $title,
-            $message,
-            $notificationId,
-            $referenceId,
-            $referenceType,
-            $typeId
-        ) {
+        $sendPushNotification = function () use ($userId, $title, $message, $notificationId, $referenceId, $referenceType, $typeId) {
             try {
                 app(\App\Services\FcmService::class)->sendToUser(
                     $userId,
@@ -107,14 +109,7 @@ class PrescriptionController extends Controller
         }
     }
 
-    private function notifyPrescriptionChanged(
-        $patientId,
-        $prescriptionId,
-        $title,
-        $patientMessage,
-        $familyMessage = null,
-        $referenceType = 'prescription'
-    )
+    private function notifyPrescriptionChanged($patientId, $prescriptionId, $title, $patientMessage, $familyMessage = null, $referenceType = 'prescription')
     {
         $patientUserId = DB::table('patients')
             ->where('patient_id', $patientId)
@@ -129,13 +124,13 @@ class PrescriptionController extends Controller
             $referenceType
         );
 
-        $familyUserIds = DB::table('family_patient_relations as fpr')
-            ->join('families as f', 'fpr.family_id', '=', 'f.family_id')
-            ->where('fpr.patient_id', $patientId)
-            ->where('fpr.status', 'Diterima')
-            ->pluck('f.user_id');
+        $caregiverUserIds = DB::table('caregiver_patient_relations as cpr')
+            ->join('caregivers as c', 'cpr.caregiver_id', '=', 'c.caregiver_id')
+            ->where('cpr.patient_id', $patientId)
+            ->where('cpr.status', 'Diterima')
+            ->pluck('c.user_id');
 
-        foreach ($familyUserIds as $userId) {
+        foreach ($caregiverUserIds as $userId) {
             $this->createNotification(
                 $userId,
                 'Pengingat Obat',
@@ -147,15 +142,80 @@ class PrescriptionController extends Controller
         }
     }
 
+    private function prescriptionBaseQuery()
+    {
+        return DB::table('prescriptions as p')
+            ->join('doctor_patient_relations as dpr', 'p.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+            ->join('medications as m', 'p.medication_id', '=', 'm.medication_id')
+            ->join('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
+            ->join('users as u', 'd.user_id', '=', 'u.user_id');
+    }
+
+    private function prescriptionSelect(): array
+    {
+        return [
+            'p.prescription_id',
+            'dpr.patient_id',
+            'dpr.doctor_id',
+            'p.doctor_patient_relation_id',
+            'u.full_name as doctor_name',
+            'm.medication_id',
+            'm.medication_name',
+            'm.description',
+            'm.dosage_form as form',
+            DB::raw("TRIM(COALESCE(p.quantity::text, '') || ' ' || COALESCE(p.quantity_unit, '')) as dosage"),
+            'p.quantity',
+            'p.quantity_unit',
+            DB::raw('NULL::text as indication'),
+            'p.meal_rule',
+            'p.notes',
+            'p.status_prescription as status',
+            'p.start_date as valid_from',
+            'p.end_date as valid_until',
+            'p.replaced_by',
+            'p.created_at',
+            'p.updated_at',
+        ];
+    }
+
+    private function attachSchedules($item): void
+    {
+        $item->schedules = DB::table('prescription_schedules as ps')
+            ->join('medication_sessions as ms', 'ps.session_id', '=', 'ms.session_id')
+            ->where('ps.prescription_id', $item->prescription_id)
+            ->select(
+                'ps.prescription_schedule_id as schedule_id',
+                'ps.prescription_schedule_id',
+                'ps.session_id',
+                'ms.session_name',
+                'ms.start_time',
+                'ms.end_time',
+                'ms.default_reminder_time',
+                DB::raw('ms.default_reminder_time as reminder_time'),
+                DB::raw("TRIM(COALESCE((SELECT quantity::text FROM prescriptions WHERE prescriptions.prescription_id = ps.prescription_id), '') || ' ' || COALESCE((SELECT quantity_unit FROM prescriptions WHERE prescriptions.prescription_id = ps.prescription_id), '')) as dose_per_session"),
+                DB::raw('true as is_active')
+            )
+            ->orderBy('ms.start_time')
+            ->get();
+    }
+
     public function searchMedications(Request $request)
     {
         $keyword = trim($request->query('keyword', ''));
 
         $data = DB::table('medications')
+            ->where('is_active', true)
             ->when($keyword !== '', function ($query) use ($keyword) {
                 $query->where('medication_name', 'ILIKE', "%{$keyword}%");
             })
-            ->select('medication_id', 'medication_name', 'description')
+            ->select(
+                'medication_id',
+                'medication_name',
+                'dosage_form',
+                'value',
+                'unit',
+                'description'
+            )
             ->orderBy('medication_name')
             ->limit(10)
             ->get();
@@ -170,13 +230,7 @@ class PrescriptionController extends Controller
     {
         $data = DB::table('medication_sessions')
             ->where('is_active', true)
-            ->select(
-                'session_id',
-                'session_name',
-                'start_time',
-                'end_time',
-                'default_reminder_time'
-            )
+            ->select('session_id', 'session_name', 'start_time', 'end_time', 'default_reminder_time')
             ->orderBy('start_time')
             ->get();
 
@@ -190,55 +244,22 @@ class PrescriptionController extends Controller
     {
         $doctorId = $request->query('doctor_id');
 
-        $data = DB::table('prescriptions as p')
-            ->join('medications as m', 'p.medication_id', '=', 'm.medication_id')
-            ->join('doctors as d', 'p.doctor_id', '=', 'd.doctor_id')
-            ->join('users as u', 'd.user_id', '=', 'u.user_id')
-            ->where('p.patient_id', $patientId)
-            ->where('p.status', 'Aktif')
-            ->select(
-                'p.prescription_id',
-                'p.patient_id',
-                'p.doctor_id',
-                'u.full_name as doctor_name',
-                'm.medication_id',
-                'm.medication_name',
-                'm.description',
-                'p.dosage',
-                'p.form',
-                'p.indication',
-                'p.meal_rule',
-                'p.notes',
-                'p.status',
-                'p.valid_from',
-                'p.valid_until',
-                'p.replaced_by',
-                'p.created_at',
-                'p.updated_at'
-            )
+        $data = $this->prescriptionBaseQuery()
+            ->where('dpr.patient_id', $patientId)
+            ->where('p.status_prescription', 'Aktif')
+            ->where(function ($query) {
+                $query->whereNull('p.start_date')->orWhereDate('p.start_date', '<=', now()->toDateString());
+            })
+            ->where(function ($query) {
+                $query->whereNull('p.end_date')->orWhereDate('p.end_date', '>=', now()->toDateString());
+            })
+            ->select($this->prescriptionSelect())
             ->orderByDesc('p.created_at')
             ->get();
 
         foreach ($data as $item) {
             $item->is_mine = $doctorId ? ((int) $item->doctor_id === (int) $doctorId) : false;
-
-            $item->schedules = DB::table('prescription_schedules as ps')
-                ->join('medication_sessions as ms', 'ps.session_id', '=', 'ms.session_id')
-                ->where('ps.prescription_id', $item->prescription_id)
-                ->where('ps.is_active', true)
-                ->select(
-                    'ps.schedule_id',
-                    'ps.session_id',
-                    'ms.session_name',
-                    'ms.start_time',
-                    'ms.end_time',
-                    'ms.default_reminder_time',
-                    'ps.dose_per_session',
-                    'ps.reminder_time',
-                    'ps.is_active'
-                )
-                ->orderBy('ms.start_time')
-                ->get();
+            $this->attachSchedules($item);
         }
 
         return response()->json([
@@ -251,61 +272,22 @@ class PrescriptionController extends Controller
     {
         $doctorId = $request->query('doctor_id');
 
-        $data = DB::table('prescriptions as p')
-            ->join('medications as m', 'p.medication_id', '=', 'm.medication_id')
-            ->join('doctors as d', 'p.doctor_id', '=', 'd.doctor_id')
-            ->join('users as u', 'd.user_id', '=', 'u.user_id')
-            ->where('p.patient_id', $patientId)
-            ->whereIn('p.status', ['Selesai', 'Diganti'])
-            ->select(
-                'p.prescription_id',
-                'p.patient_id',
-                'p.doctor_id',
-                'u.full_name as doctor_name',
-                'm.medication_id',
-                'm.medication_name',
-                'm.description',
-                'p.dosage',
-                'p.form',
-                'p.indication',
-                'p.meal_rule',
-                'p.notes',
-                'p.status',
-                'p.valid_from',
-                'p.valid_until',
-                'p.replaced_by',
-                DB::raw("
-                    CASE
-                        WHEN p.status = 'Diganti' THEN 'Resep diperbarui'
-                        WHEN p.status = 'Selesai' THEN 'Obat dihentikan'
-                        ELSE 'Tidak aktif'
-                    END as reason
-                "),
-                'p.created_at',
-                'p.updated_at'
-            )
+        $data = $this->prescriptionBaseQuery()
+            ->where('dpr.patient_id', $patientId)
+            ->whereIn('p.status_prescription', [
+                'Selesai',
+                'Diganti',
+                'Dihentikan',
+            ])
+            ->select(array_merge($this->prescriptionSelect(), [
+                DB::raw("\n                    CASE\n                        WHEN p.status_prescription = 'Diganti' THEN 'Resep diperbarui'\n                        WHEN p.status_prescription = 'Selesai' THEN 'Resep selesai'\n                        WHEN p.status_prescription = 'Dihentikan' THEN 'Obat dihentikan'\n                        ELSE 'Tidak aktif'\n                    END as reason\n                "),
+            ]))
             ->orderByDesc('p.updated_at')
             ->get();
 
         foreach ($data as $item) {
             $item->is_mine = $doctorId ? ((int) $item->doctor_id === (int) $doctorId) : false;
-
-            $item->schedules = DB::table('prescription_schedules as ps')
-                ->join('medication_sessions as ms', 'ps.session_id', '=', 'ms.session_id')
-                ->where('ps.prescription_id', $item->prescription_id)
-                ->select(
-                    'ps.schedule_id',
-                    'ps.session_id',
-                    'ms.session_name',
-                    'ms.start_time',
-                    'ms.end_time',
-                    'ms.default_reminder_time',
-                    'ps.dose_per_session',
-                    'ps.reminder_time',
-                    'ps.is_active'
-                )
-                ->orderBy('ms.start_time')
-                ->get();
+            $this->attachSchedules($item);
         }
 
         return response()->json([
@@ -319,49 +301,47 @@ class PrescriptionController extends Controller
         $request->validate([
             'doctor_id' => 'required|exists:doctors,doctor_id',
             'medication_id' => 'required|exists:medications,medication_id',
-            'dosage' => 'required|string|max:100',
-            'form' => ['required', 'string', 'max:100', Rule::in($this->dosageForms)],
+            'dosage' => 'nullable|string|max:100',
+            'form' => ['nullable', 'string', 'max:100', Rule::in(['Tablet', 'Kapsul', 'Sirup', 'Injeksi', 'Tetes', 'Krim/Salep'])],
+            'quantity' => 'nullable|numeric',
+            'quantity_unit' => 'nullable|string|max:50',
             'indication' => 'nullable|string',
-            'meal_rule' => ['nullable', 'string', 'max:100', $this->activeMealRuleRule()],
+            'meal_rule' => ['nullable', 'string', 'max:100', $this->mealRuleRule()],
             'notes' => 'nullable|string',
             'valid_from' => 'required|date',
             'valid_until' => 'required|date|after_or_equal:valid_from',
             'schedules' => 'required|array|min:1',
             'schedules.*.session_id' => 'required|exists:medication_sessions,session_id',
-            'schedules.*.dose_per_session' => 'required|string|max:100',
-            'schedules.*.reminder_time' => 'nullable|date_format:H:i',
         ]);
 
         return DB::transaction(function () use ($request, $patientId) {
-            $prescriptionData = $this->withMealRuleId([
-                'patient_id' => $patientId,
-                'doctor_id' => $request->doctor_id,
+            $relationId = $this->activeRelationId((int) $request->doctor_id, (int) $patientId);
+
+            if (!$relationId) {
+                return response()->json([
+                    'message' => 'Relasi dokter dan pasien aktif tidak ditemukan',
+                ], 404);
+            }
+
+            $prescriptionId = DB::table('prescriptions')->insertGetId([
+                'doctor_patient_relation_id' => $relationId,
                 'medication_id' => $request->medication_id,
-                'dosage' => $request->dosage,
-                'form' => $request->form,
-                'indication' => $request->indication,
+                'quantity' => $this->parseQuantity($request->dosage, $request->quantity),
+                'quantity_unit' => $this->quantityUnit($request->dosage, $request->form, $request->quantity_unit),
                 'meal_rule' => $request->meal_rule,
                 'notes' => $request->notes,
-                'status' => 'Aktif',
-                'valid_from' => $request->valid_from,
-                'valid_until' => $request->valid_until,
+                'start_date' => $request->valid_from,
+                'end_date' => $request->valid_until,
+                'status_prescription' => 'Aktif',
                 'replaced_by' => null,
                 'created_at' => now(),
                 'updated_at' => now(),
-            ], $request->meal_rule);
-
-            $prescriptionId = DB::table('prescriptions')->insertGetId(
-                $prescriptionData,
-                'prescription_id'
-            );
+            ], 'prescription_id');
 
             foreach ($request->schedules as $schedule) {
                 DB::table('prescription_schedules')->insert([
                     'prescription_id' => $prescriptionId,
                     'session_id' => $schedule['session_id'],
-                    'dose_per_session' => $schedule['dose_per_session'],
-                    'reminder_time' => $schedule['reminder_time'] ?? null,
-                    'is_active' => true,
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
@@ -380,9 +360,7 @@ class PrescriptionController extends Controller
                 $patientId,
                 $prescriptionId,
                 'Resep Obat Baru',
-
                 "Dokter menambahkan resep {$medicationName}. Silakan cek jadwal minum obat Anda.",
-
                 "Dokter menambahkan resep {$medicationName} untuk {$patientName}. Mohon bantu memantau jadwal minum obat pasien.",
                 'prescription_created'
             );
@@ -402,24 +380,25 @@ class PrescriptionController extends Controller
             'doctor_id' => 'required|exists:doctors,doctor_id',
             'patient_id' => 'required|exists:patients,patient_id',
             'medication_id' => 'required|exists:medications,medication_id',
-            'dosage' => 'required|string|max:100',
-            'form' => ['required', 'string', 'max:100', Rule::in($this->dosageForms)],
+            'dosage' => 'nullable|string|max:100',
+            'form' => ['nullable', 'string', 'max:100', Rule::in(['Tablet', 'Kapsul', 'Sirup', 'Injeksi', 'Tetes', 'Krim/Salep'])],
+            'quantity' => 'nullable|numeric',
+            'quantity_unit' => 'nullable|string|max:50',
             'indication' => 'nullable|string',
-            'meal_rule' => ['nullable', 'string', 'max:100', $this->activeMealRuleRule()],
+            'meal_rule' => ['nullable', 'string', 'max:100', $this->mealRuleRule()],
             'notes' => 'nullable|string',
             'valid_from' => 'required|date',
             'valid_until' => 'required|date|after_or_equal:valid_from',
             'schedules' => 'required|array|min:1',
             'schedules.*.session_id' => 'required|exists:medication_sessions,session_id',
-            'schedules.*.dose_per_session' => 'required|string|max:100',
-            'schedules.*.reminder_time' => 'nullable|date_format:H:i',
         ]);
 
         return DB::transaction(function () use ($request, $prescriptionId) {
-            $old = DB::table('prescriptions')
-                ->where('prescription_id', $prescriptionId)
-                ->where('doctor_id', $request->doctor_id)
-                ->where('status', 'Aktif')
+            $old = $this->prescriptionBaseQuery()
+                ->where('p.prescription_id', $prescriptionId)
+                ->where('dpr.doctor_id', $request->doctor_id)
+                ->where('p.status_prescription', 'Aktif')
+                ->select('p.*', 'dpr.patient_id', 'dpr.doctor_id')
                 ->first();
 
             if (!$old) {
@@ -428,35 +407,33 @@ class PrescriptionController extends Controller
                 ], 404);
             }
 
-            $newPrescriptionData = $this->withMealRuleId([
-                'patient_id' => $request->patient_id,
-                'doctor_id' => $request->doctor_id,
+            $relationId = $this->activeRelationId((int) $request->doctor_id, (int) $request->patient_id);
+
+            if (!$relationId) {
+                return response()->json([
+                    'message' => 'Relasi dokter dan pasien aktif tidak ditemukan',
+                ], 404);
+            }
+
+            $newPrescriptionId = DB::table('prescriptions')->insertGetId([
+                'doctor_patient_relation_id' => $relationId,
                 'medication_id' => $request->medication_id,
-                'dosage' => $request->dosage,
-                'form' => $request->form,
-                'indication' => $request->indication,
+                'quantity' => $this->parseQuantity($request->dosage, $request->quantity),
+                'quantity_unit' => $this->quantityUnit($request->dosage, $request->form, $request->quantity_unit),
                 'meal_rule' => $request->meal_rule,
                 'notes' => $request->notes,
-                'status' => 'Aktif',
-                'valid_from' => $request->valid_from,
-                'valid_until' => $request->valid_until,
+                'start_date' => $request->valid_from,
+                'end_date' => $request->valid_until,
+                'status_prescription' => 'Aktif',
                 'replaced_by' => null,
                 'created_at' => now(),
                 'updated_at' => now(),
-            ], $request->meal_rule);
-
-            $newPrescriptionId = DB::table('prescriptions')->insertGetId(
-                $newPrescriptionData,
-                'prescription_id'
-            );
+            ], 'prescription_id');
 
             foreach ($request->schedules as $schedule) {
                 DB::table('prescription_schedules')->insert([
                     'prescription_id' => $newPrescriptionId,
                     'session_id' => $schedule['session_id'],
-                    'dose_per_session' => $schedule['dose_per_session'],
-                    'reminder_time' => $schedule['reminder_time'] ?? null,
-                    'is_active' => true,
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
@@ -465,16 +442,9 @@ class PrescriptionController extends Controller
             DB::table('prescriptions')
                 ->where('prescription_id', $prescriptionId)
                 ->update([
-                    'status' => 'Diganti',
-                    'valid_until' => now()->toDateString(),
+                    'status_prescription' => 'Diganti',
+                    'end_date' => now()->toDateString(),
                     'replaced_by' => $newPrescriptionId,
-                    'updated_at' => now(),
-                ]);
-
-            DB::table('prescription_schedules')
-                ->where('prescription_id', $prescriptionId)
-                ->update([
-                    'is_active' => false,
                     'updated_at' => now(),
                 ]);
 
@@ -491,9 +461,7 @@ class PrescriptionController extends Controller
                 $request->patient_id,
                 $newPrescriptionId,
                 'Resep Obat Diperbarui',
-
                 "Dokter memperbarui resep {$medicationName}. Silakan cek jadwal minum obat terbaru.",
-
                 "Dokter memperbarui resep {$medicationName} untuk {$patientName}. Mohon bantu memantau jadwal minum obat pasien.",
                 'prescription_updated'
             );
@@ -516,12 +484,11 @@ class PrescriptionController extends Controller
         ]);
 
         return DB::transaction(function () use ($request, $prescriptionId) {
-            $prescription = DB::table('prescriptions as p')
-                ->join('medications as m', 'p.medication_id', '=', 'm.medication_id')
+            $prescription = $this->prescriptionBaseQuery()
                 ->where('p.prescription_id', $prescriptionId)
-                ->where('p.doctor_id', $request->doctor_id)
-                ->where('p.status', 'Aktif')
-                ->select('p.*', 'm.medication_name')
+                ->where('dpr.doctor_id', $request->doctor_id)
+                ->where('p.status_prescription', 'Aktif')
+                ->select('p.*', 'dpr.patient_id', 'm.medication_name')
                 ->first();
 
             if (!$prescription) {
@@ -535,16 +502,9 @@ class PrescriptionController extends Controller
             DB::table('prescriptions')
                 ->where('prescription_id', $prescriptionId)
                 ->update([
-                    'status' => 'Selesai',
-                    'valid_until' => now()->toDateString(),
+                    'status_prescription' => 'Dihentikan',
+                    'end_date' => now()->toDateString(),
                     'notes' => trim(($prescription->notes ?? '') . "\n" . $reason),
-                    'updated_at' => now(),
-                ]);
-
-            DB::table('prescription_schedules')
-                ->where('prescription_id', $prescriptionId)
-                ->update([
-                    'is_active' => false,
                     'updated_at' => now(),
                 ]);
 
@@ -557,9 +517,7 @@ class PrescriptionController extends Controller
                 $prescription->patient_id,
                 $prescriptionId,
                 'Resep Obat Dihentikan',
-
                 "Dokter menghentikan resep {$prescription->medication_name}.",
-
                 "Dokter menghentikan resep {$prescription->medication_name} untuk {$patientName}.",
                 'prescription_stopped'
             );
@@ -574,31 +532,9 @@ class PrescriptionController extends Controller
     {
         $doctorId = $request->query('doctor_id');
 
-        $prescription = DB::table('prescriptions as p')
-            ->join('medications as m', 'p.medication_id', '=', 'm.medication_id')
-            ->join('doctors as d', 'p.doctor_id', '=', 'd.doctor_id')
-            ->join('users as u', 'd.user_id', '=', 'u.user_id')
+        $prescription = $this->prescriptionBaseQuery()
             ->where('p.prescription_id', $prescriptionId)
-            ->select(
-                'p.prescription_id',
-                'p.patient_id',
-                'p.doctor_id',
-                'u.full_name as doctor_name',
-                'm.medication_id',
-                'm.medication_name',
-                'm.description',
-                'p.dosage',
-                'p.form',
-                'p.indication',
-                'p.meal_rule',
-                'p.notes',
-                'p.status',
-                'p.valid_from',
-                'p.valid_until',
-                'p.replaced_by',
-                'p.created_at',
-                'p.updated_at'
-            )
+            ->select($this->prescriptionSelect())
             ->first();
 
         if (!$prescription) {
@@ -608,23 +544,7 @@ class PrescriptionController extends Controller
         }
 
         $prescription->is_mine = $doctorId ? ((int) $prescription->doctor_id === (int) $doctorId) : false;
-
-        $prescription->schedules = DB::table('prescription_schedules as ps')
-            ->join('medication_sessions as ms', 'ps.session_id', '=', 'ms.session_id')
-            ->where('ps.prescription_id', $prescriptionId)
-            ->select(
-                'ps.schedule_id',
-                'ps.session_id',
-                'ms.session_name',
-                'ms.start_time',
-                'ms.end_time',
-                'ms.default_reminder_time',
-                'ps.dose_per_session',
-                'ps.reminder_time',
-                'ps.is_active'
-            )
-            ->orderBy('ms.start_time')
-            ->get();
+        $this->attachSchedules($prescription);
 
         return response()->json([
             'message' => 'Detail resep berhasil diambil',
