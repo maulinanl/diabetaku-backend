@@ -202,6 +202,28 @@ class PatientController extends Controller
             )
             ->first();
 
+        $latestPhysiological = DB::table('physiological_records')
+            ->where('patient_id', $patientId)
+            ->where('validation_status', 'Valid')
+            ->orderByDesc('measured_at')
+            ->first();
+
+        if (
+            $latestPhysiological &&
+            $profile &&
+            $profile->height_cm &&
+            $latestPhysiological->weight_kg
+        ) {
+            $heightMeter = ((float) $profile->height_cm) / 100;
+
+            if ($heightMeter > 0) {
+                $latestPhysiological->bmi = round(
+                    ((float) $latestPhysiological->weight_kg) / ($heightMeter * $heightMeter),
+                    1
+                );
+            }
+        }
+
         return response()->json([
             'message' => 'Dashboard pasien berhasil diambil',
             'data' => [
@@ -211,11 +233,7 @@ class PatientController extends Controller
                     ->where('validation_status', 'Valid')
                     ->orderByDesc('measured_at')
                     ->first(),
-                'latest_physiological' => DB::table('physiological_records')
-                    ->where('patient_id', $patientId)
-                    ->where('validation_status', 'Valid')
-                    ->orderByDesc('measured_at')
-                    ->first(),
+                'latest_physiological' => $latestPhysiological,
             ]
         ]);
     }
@@ -234,13 +252,30 @@ class PatientController extends Controller
 
     public function physiological($patientId)
     {
+        $heightCm = DB::table('patients')
+            ->where('patient_id', $patientId)
+            ->value('height_cm');
+
+        $data = DB::table('physiological_records')
+            ->where('patient_id', $patientId)
+            ->where('validation_status', 'Valid')
+            ->orderByDesc('measured_at')
+            ->get()
+            ->map(function ($item) use ($heightCm) {
+                if ($heightCm && $item->weight_kg) {
+                    $heightMeter = ((float) $heightCm) / 100;
+
+                    if ($heightMeter > 0) {
+                        $item->bmi = round(((float) $item->weight_kg) / ($heightMeter * $heightMeter), 1);
+                    }
+                }
+
+                return $item;
+            });
+
         return response()->json([
             'message' => 'Data fisiologis berhasil diambil',
-            'data' => DB::table('physiological_records')
-                ->where('patient_id', $patientId)
-                ->where('validation_status', 'Valid')
-                ->orderByDesc('measured_at')
-                ->get()
+            'data' => $data
         ]);
     }
 
@@ -315,12 +350,17 @@ class PatientController extends Controller
         ]);
     }
 
-    private function getDoctorPatientRelationId(int $doctorId, int $patientId): ?int
-    {
+    private function getDoctorPatientRelationId(
+        int $doctorId,
+        int $patientId,
+        array $statuses = ['Diterima']
+    ): ?int {
         $id = DB::table('doctor_patient_relations')
             ->where('doctor_id', $doctorId)
             ->where('patient_id', $patientId)
-            ->where('status', 'Diterima')
+            ->whereIn('status', $statuses)
+            ->orderByRaw("CASE WHEN status = 'Diterima' THEN 1 ELSE 2 END")
+            ->orderByDesc('updated_at')
             ->value('doctor_patient_relation_id');
 
         return $id === null ? null : (int) $id;
@@ -336,13 +376,7 @@ class PatientController extends Controller
             ], 422);
         }
 
-        $relationId = $this->getDoctorPatientRelationId((int) $doctorId, (int) $patientId);
-
-        if (!$relationId) {
-            return response()->json([
-                'message' => 'Relasi dokter dan pasien aktif tidak ditemukan'
-            ], 404);
-        }
+        $relationId = $this->getDoctorPatientRelationId((int) $doctorId, (int) $patientId, ['Diterima', 'Diputus']);
 
         $data = DB::table('clinical_parameters as cp')
             ->leftJoin('patient_custom_thresholds as pct', function ($join) use ($relationId) {

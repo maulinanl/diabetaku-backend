@@ -9,7 +9,7 @@ use Illuminate\Validation\Rule;
 
 class PrescriptionController extends Controller
 {
-    private function mealRuleRule(): Rule
+    private function mealRuleRule()
     {
         return Rule::in(['Sebelum Makan', 'Sesudah Makan', 'Saat Makan', 'Sebelum Tidur', 'Bangun Tidur', 'Bebas']);
     }
@@ -170,6 +170,8 @@ class PrescriptionController extends Controller
             'p.meal_rule',
             'p.notes',
             'p.status_prescription as status',
+            'p.start_date',
+            'p.end_date',
             'p.start_date as valid_from',
             'p.end_date as valid_until',
             'p.replaced_by',
@@ -308,8 +310,8 @@ class PrescriptionController extends Controller
             'indication' => 'nullable|string',
             'meal_rule' => ['nullable', 'string', 'max:100', $this->mealRuleRule()],
             'notes' => 'nullable|string',
-            'valid_from' => 'required|date',
-            'valid_until' => 'required|date|after_or_equal:valid_from',
+            'start_date' => 'required|date',
+            'end_date' => 'required|date|after_or_equal:start_date',
             'schedules' => 'required|array|min:1',
             'schedules.*.session_id' => 'required|exists:medication_sessions,session_id',
         ]);
@@ -330,8 +332,8 @@ class PrescriptionController extends Controller
                 'quantity_unit' => $this->quantityUnit($request->dosage, $request->form, $request->quantity_unit),
                 'meal_rule' => $request->meal_rule,
                 'notes' => $request->notes,
-                'start_date' => $request->valid_from,
-                'end_date' => $request->valid_until,
+                'start_date' => $request->start_date,
+                'end_date' => $request->end_date,
                 'status_prescription' => 'Aktif',
                 'replaced_by' => null,
                 'created_at' => now(),
@@ -387,8 +389,8 @@ class PrescriptionController extends Controller
             'indication' => 'nullable|string',
             'meal_rule' => ['nullable', 'string', 'max:100', $this->mealRuleRule()],
             'notes' => 'nullable|string',
-            'valid_from' => 'required|date',
-            'valid_until' => 'required|date|after_or_equal:valid_from',
+            'start_date' => 'required|date',
+            'end_date' => 'required|date|after_or_equal:start_date',
             'schedules' => 'required|array|min:1',
             'schedules.*.session_id' => 'required|exists:medication_sessions,session_id',
         ]);
@@ -422,8 +424,8 @@ class PrescriptionController extends Controller
                 'quantity_unit' => $this->quantityUnit($request->dosage, $request->form, $request->quantity_unit),
                 'meal_rule' => $request->meal_rule,
                 'notes' => $request->notes,
-                'start_date' => $request->valid_from,
-                'end_date' => $request->valid_until,
+                'start_date' => $request->start_date,
+                'end_date' => $request->end_date,
                 'status_prescription' => 'Aktif',
                 'replaced_by' => null,
                 'created_at' => now(),
