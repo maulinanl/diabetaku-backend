@@ -59,6 +59,11 @@ class PatientController extends Controller
                 ->whereDate('measured_at', $today)
                 ->exists(),
 
+            'physiological' => DB::table('physiological_records')
+                ->where('patient_id', $patientId)
+                ->whereDate('measured_at', $today)
+                ->exists(),
+
             'medication' => DB::table('medication_consumption_logs as l')
                 ->join('prescription_schedules as ps', 'l.prescription_schedule_id', '=', 'ps.prescription_schedule_id')
                 ->join('prescriptions as p', 'ps.prescription_id', '=', 'p.prescription_id')
@@ -89,7 +94,7 @@ class PatientController extends Controller
                 'daily_checklist' => [
                     'date' => $today,
                     'completed' => $completedChecklist,
-                    'total' => 4,
+                    'total' => 5,
                     'items' => $checklist,
                 ],
             ],

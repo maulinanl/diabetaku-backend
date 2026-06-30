@@ -192,6 +192,11 @@ class ProfileController extends Controller
             ->whereDate('measured_at', $today)
             ->exists();
 
+        $physiologicalDone = DB::table('physiological_records')
+            ->where('patient_id', $patientId)
+            ->whereDate('measured_at', $today)
+            ->exists();
+
         $activityDone = DB::table('activity_records')
             ->where('patient_id', $patientId)
             ->whereDate('activity_date', $today)
@@ -212,6 +217,7 @@ class ProfileController extends Controller
 
         $items = [
             'glucose' => $glucoseDone,
+            'physiological' => $physiologicalDone,
             'medication' => $medicationDone,
             'activity' => $activityDone,
             'meal' => $mealDone,
@@ -252,7 +258,7 @@ class ProfileController extends Controller
                 'pending_validation_count' => $pendingValidationCount,
                 'daily_checklist' => [
                     'completed' => $completed,
-                    'total' => 4,
+                    'total' => 5,
                     'items' => $items,
                 ],
             ],

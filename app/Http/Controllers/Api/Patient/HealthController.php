@@ -517,10 +517,17 @@ class HealthController extends Controller
                     ->get(),
 
                 'physiological' => DB::table('physiological_records as pr')
+                    ->join('patients as p', 'pr.patient_id', '=', 'p.patient_id')
                     ->leftJoin('users as iu', 'pr.input_by_user_id', '=', 'iu.user_id')
                     ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
                     ->where('pr.patient_id', $patientId)
-                    ->select('pr.*', DB::raw("COALESCE(iu.full_name, '-') as input_by_name"), DB::raw($roleCase))
+                    ->select(
+                        'pr.*',
+                        'p.height_cm',
+                        DB::raw("CASE WHEN pr.weight_kg IS NOT NULL AND p.height_cm IS NOT NULL AND p.height_cm > 0 THEN ROUND((pr.weight_kg / POWER((p.height_cm / 100.0), 2))::numeric, 1) ELSE NULL END as bmi"),
+                        DB::raw("COALESCE(iu.full_name, '-') as input_by_name"),
+                        DB::raw($roleCase)
+                    )
                     ->orderByDesc('pr.measured_at')
                     ->get(),
 
@@ -557,6 +564,8 @@ class HealthController extends Controller
                         'ps.prescription_schedule_id',
                                 'm.medication_name',
                         'ms.session_name',
+                        DB::raw('ms.session_name as session'),
+                        DB::raw('l.taken_at as checked_at'),
                         'ms.start_time',
                         'ms.end_time',
                         DB::raw("TRIM(CONCAT(COALESCE(p.quantity::TEXT, ''), ' ', COALESCE(p.quantity_unit, ''))) as dose_per_session"),

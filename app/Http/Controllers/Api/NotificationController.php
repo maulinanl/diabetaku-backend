@@ -264,6 +264,131 @@ class NotificationController extends Controller
         $data->relation_updated_at = $family->relation_updated_at;
     }
 
+
+    private function attachValidationDetail($data, string $referenceType): void
+    {
+        $recordId = (int) $data->reference_id;
+        $recordType = str_replace('validation_', '', $referenceType);
+
+        $baseInputColumns = [
+            DB::raw("COALESCE(iu.full_name, '-') as input_by"),
+            DB::raw("COALESCE(iu.full_name, '-') as input_by_name"),
+            DB::raw("CASE WHEN r.role_name ILIKE '%caregiver%' OR r.role_name ILIKE '%family%' OR r.role_name ILIKE '%keluarga%' THEN 'Keluarga' ELSE 'Pasien' END as input_by_role"),
+            DB::raw("CASE WHEN r.role_name ILIKE '%caregiver%' OR r.role_name ILIKE '%family%' OR r.role_name ILIKE '%keluarga%' THEN 'Keluarga' ELSE 'Pasien' END as relation"),
+        ];
+
+        $record = null;
+
+        if ($recordType === 'glucose') {
+            $record = DB::table('glucose_records as gr')
+                ->leftJoin('users as iu', 'gr.input_by_user_id', '=', 'iu.user_id')
+                ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
+                ->where('gr.glucose_id', $recordId)
+                ->select(array_merge([
+                    'gr.*',
+                    DB::raw("'glucose' as record_type"),
+                    'gr.glucose_id as record_id',
+                    DB::raw("CONCAT('Glukosa ', gr.measurement_type) as title"),
+                    'gr.measured_at as date',
+                    DB::raw('CAST(gr.glucose_value as TEXT) as value'),
+                    DB::raw("'mg/dL' as unit"),
+                ], $baseInputColumns))
+                ->first();
+        }
+
+        if ($recordType === 'physiological') {
+            $record = DB::table('physiological_records as pr')
+                ->join('patients as p', 'pr.patient_id', '=', 'p.patient_id')
+                ->leftJoin('users as iu', 'pr.input_by_user_id', '=', 'iu.user_id')
+                ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
+                ->where('pr.physiological_id', $recordId)
+                ->select(array_merge([
+                    'pr.*',
+                    'p.height_cm',
+                    DB::raw("CASE WHEN pr.weight_kg IS NOT NULL AND p.height_cm IS NOT NULL AND p.height_cm > 0 THEN ROUND((pr.weight_kg / POWER((p.height_cm / 100.0), 2))::numeric, 1) ELSE NULL END as bmi"),
+                    DB::raw("'physiological' as record_type"),
+                    'pr.physiological_id as record_id',
+                    DB::raw("'Tekanan Darah' as title"),
+                    'pr.measured_at as date',
+                    DB::raw("CONCAT(COALESCE(pr.systolic::TEXT, '-'), '/', COALESCE(pr.diastolic::TEXT, '-')) as value"),
+                    DB::raw("'mmHg' as unit"),
+                ], $baseInputColumns))
+                ->first();
+        }
+
+        if ($recordType === 'activity') {
+            $record = DB::table('activity_records as ar')
+                ->leftJoin('activity_types as at', 'ar.activity_type_id', '=', 'at.activity_type_id')
+                ->leftJoin('users as iu', 'ar.input_by_user_id', '=', 'iu.user_id')
+                ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
+                ->where('ar.activity_id', $recordId)
+                ->select(array_merge([
+                    'ar.*',
+                    'at.activity_name',
+                    DB::raw("'activity' as record_type"),
+                    'ar.activity_id as record_id',
+                    DB::raw("COALESCE(at.activity_name, 'Aktivitas Fisik') as title"),
+                    'ar.activity_date as date',
+                    DB::raw('CAST(ar.duration_minutes as TEXT) as value'),
+                    DB::raw("'menit' as unit"),
+                ], $baseInputColumns))
+                ->first();
+        }
+
+        if ($recordType === 'meal') {
+            $record = DB::table('meal_records as mr')
+                ->leftJoin('meal_types as mt', 'mr.meal_type_id', '=', 'mt.meal_type_id')
+                ->leftJoin('users as iu', 'mr.input_by_user_id', '=', 'iu.user_id')
+                ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
+                ->where('mr.meal_id', $recordId)
+                ->select(array_merge([
+                    'mr.*',
+                    'mt.meal_type_name',
+                    DB::raw("'meal' as record_type"),
+                    'mr.meal_id as record_id',
+                    DB::raw("COALESCE(mt.meal_type_name, 'Pola Makan') as title"),
+                    'mr.meal_date as date',
+                    DB::raw("COALESCE(CAST(mr.carbohydrate_estimate as TEXT), CAST(mr.calories as TEXT), '-') as value"),
+                    DB::raw("CASE WHEN mr.carbohydrate_estimate IS NOT NULL THEN 'gram' WHEN mr.calories IS NOT NULL THEN 'kkal' ELSE '' END as unit"),
+                ], $baseInputColumns))
+                ->first();
+        }
+
+        if ($recordType === 'medication') {
+            $record = DB::table('medication_consumption_logs as l')
+                ->join('prescription_schedules as ps', 'l.prescription_schedule_id', '=', 'ps.prescription_schedule_id')
+                ->join('prescriptions as p', 'ps.prescription_id', '=', 'p.prescription_id')
+                ->leftJoin('medications as m', 'p.medication_id', '=', 'm.medication_id')
+                ->leftJoin('medication_sessions as ms', 'ps.session_id', '=', 'ms.session_id')
+                ->leftJoin('users as iu', 'l.input_by_user_id', '=', 'iu.user_id')
+                ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
+                ->where('l.log_id', $recordId)
+                ->select(array_merge([
+                    'l.*',
+                    'm.medication_name',
+                    'ms.session_name',
+                    DB::raw("TRIM(COALESCE(p.quantity::TEXT, '') || ' ' || COALESCE(p.quantity_unit, '')) as dose_per_session"),
+                    DB::raw('ms.session_name as session'),
+                    DB::raw('l.taken_at as checked_at'),
+                    DB::raw("'medication' as record_type"),
+                    'l.log_id as record_id',
+                    DB::raw("'Kepatuhan Obat' as title"),
+                    'l.log_date as date',
+                    DB::raw('l.status::TEXT as value'),
+                    DB::raw("''::TEXT as unit"),
+                ], $baseInputColumns))
+                ->first();
+        }
+
+        if (!$record) {
+            return;
+        }
+
+        foreach ((array) $record as $key => $value) {
+            $data->{$key} = $value;
+        }
+    }
+
     private function attachPrescriptionDetail($data): void
     {
         $prescriptionId = (int) $data->reference_id;
@@ -453,6 +578,11 @@ class NotificationController extends Controller
         ], true)) {
             $this->attachPatientDetail($data, (int) $data->reference_id);
             $data->status = $this->statusFromReferenceType($referenceType, $data->title, $data->message);
+            return $data;
+        }
+
+        if (str_starts_with($referenceType, 'validation_')) {
+            $this->attachValidationDetail($data, $referenceType);
             return $data;
         }
 
