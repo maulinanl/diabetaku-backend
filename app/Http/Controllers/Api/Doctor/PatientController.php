@@ -579,7 +579,7 @@ class PatientController extends Controller
             ->get();
 
         return response()->json([
-            'message' => 'Daftar keluarga pasien berhasil diambil',
+            'message' => 'Daftar pendamping pasien berhasil diambil',
             'data' => $caregivers
         ]);
     }

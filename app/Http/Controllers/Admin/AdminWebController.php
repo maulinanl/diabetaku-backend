@@ -55,7 +55,7 @@ class AdminWebController extends Controller
             ],
         ],
         'relation-types' => [
-            'title' => 'Tipe Relasi Keluarga',
+            'title' => 'Tipe Relasi Pendamping',
             'table' => 'relation_types',
             'primary_key' => 'relation_type_id',
             'fields' => [

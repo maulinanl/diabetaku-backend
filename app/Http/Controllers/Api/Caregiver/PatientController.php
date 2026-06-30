@@ -77,26 +77,36 @@ class PatientController extends Controller
 
     public function findPatient(Request $request)
     {
-        $request->validate([
-            'email' => 'required|email',
+        $validated = $request->validate([
+            'email' => 'required|string|max:150',
             'caregiver_id' => 'required|exists:caregivers,caregiver_id',
         ]);
 
+        $keyword = strtolower(trim($validated['email']));
+
+        if ($keyword === '' || !str_contains($keyword, '@')) {
+            return response()->json([
+                'message' => 'Lengkapi email pasien terlebih dahulu',
+                'data' => [],
+            ]);
+        }
+
         $patients = DB::table('patients as p')
             ->join('users as u', 'p.user_id', '=', 'u.user_id')
-            ->leftJoin('caregiver_patient_relations as fpr', function ($join) use ($request) {
-                $join->on('p.patient_id', '=', 'fpr.patient_id')
-                    ->where('fpr.caregiver_id', '=', $request->caregiver_id);
+            ->leftJoin('caregiver_patient_relations as cpr', function ($join) use ($validated) {
+                $join->on('p.patient_id', '=', 'cpr.patient_id')
+                    ->where('cpr.caregiver_id', '=', $validated['caregiver_id']);
             })
-            ->whereRaw('LOWER(u.email) = ?', [strtolower(trim($request->email))])
+            ->whereRaw('LOWER(TRIM(u.email)) = ?', [$keyword])
+            ->where('u.role_id', 3)
             ->select(
                 'p.patient_id',
                 'u.full_name',
                 'u.email',
                 'u.gender',
                 'p.diabetes_type',
-                'fpr.status',
-                'fpr.connected_at'
+                'cpr.status',
+                'cpr.connected_at'
             )
             ->get();
 

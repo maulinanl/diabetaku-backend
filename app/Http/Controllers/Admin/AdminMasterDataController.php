@@ -51,7 +51,7 @@ class AdminMasterDataController extends Controller
             ],
         ],
         'relation-types' => [
-            'title' => 'Hubungan Keluarga',
+            'title' => 'Hubungan Pendamping',
             'table' => 'relation_types',
             'id' => 'relation_type_id',
             'columns' => [

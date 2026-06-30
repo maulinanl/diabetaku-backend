@@ -115,7 +115,7 @@ class ConnectionController extends Controller
             ->get();
 
         return response()->json([
-            'message' => 'Keluarga terhubung berhasil diambil',
+            'message' => 'Pendamping terhubung berhasil diambil',
             'data' => $caregivers
         ]);
     }
@@ -314,7 +314,7 @@ class ConnectionController extends Controller
                 throw new \Exception('Permintaan tidak ditemukan atau sudah diproses');
             }
 
-            $caregiveryUserId = DB::table('caregivers')
+            $caregiverUserId = DB::table('caregivers')
                 ->where('caregiver_id', $request->caregiver_id)
                 ->value('user_id');
 
@@ -334,7 +334,7 @@ class ConnectionController extends Controller
         });
 
         return response()->json([
-            'message' => 'Permintaan keluarga berhasil diterima'
+            'message' => 'Permintaan pendamping berhasil diterima'
         ]);
     }
 
@@ -416,7 +416,7 @@ class ConnectionController extends Controller
             );
 
             return response()->json([
-                'message' => 'Relasi keluarga berhasil diputus'
+                'message' => 'Relasi pendamping berhasil diputus'
             ]);
         });
     }

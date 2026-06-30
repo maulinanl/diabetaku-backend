@@ -30,7 +30,7 @@ class ProfileController extends Controller
 
         if (!$profile) {
             return response()->json([
-                'message' => 'Profil keluarga tidak ditemukan'
+                'message' => 'Profil pendamping tidak ditemukan'
             ], 404);
         }
 
@@ -48,7 +48,7 @@ class ProfileController extends Controller
         $data['total_medication_checklists'] = $totalMedicationChecklists;
 
         return response()->json([
-            'message' => 'Profil keluarga berhasil diambil',
+            'message' => 'Profil pendamping berhasil diambil',
             'data' => $data
         ]);
     }
@@ -68,7 +68,7 @@ class ProfileController extends Controller
 
         if (!$caregiver) {
             return response()->json([
-                'message' => 'Profil keluarga tidak ditemukan'
+                'message' => 'Profil pendamping tidak ditemukan'
             ], 404);
         }
 
@@ -82,7 +82,7 @@ class ProfileController extends Controller
             ]);
 
         return response()->json([
-            'message' => 'Profil keluarga berhasil diperbarui'
+            'message' => 'Profil pendamping berhasil diperbarui'
         ]);
     }
 }

@@ -159,7 +159,7 @@ class AuthController extends Controller
         });
 
         return response()->json([
-            'message' => 'Registrasi keluarga berhasil.',
+            'message' => 'Registrasi pendamping berhasil.',
             'data' => $data
         ], 201);
     }

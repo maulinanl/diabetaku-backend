@@ -82,7 +82,7 @@ class HealthController extends Controller
     {
         return DB::table('users')
             ->where('user_id', $userId)
-            ->value('full_name') ?? 'Keluarga';
+            ->value('full_name') ?? 'Pendamping';
     }
 
     private function hasAcceptedRelation($patientId, $inputByUserId)
@@ -132,7 +132,7 @@ class HealthController extends Controller
             $patientUserId,
             $notificationTypeId,
             $title,
-            ($inputByName ?? 'Keluarga') . ' menambahkan ' . $dataName . ' yang menunggu validasi Anda.',
+            ($inputByName ?? 'Pendamping') . ' menambahkan ' . $dataName . ' yang menunggu validasi Anda.',
             $referenceId,
             $referenceType
         );

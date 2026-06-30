@@ -79,7 +79,7 @@ class RecommendationController extends Controller
             ->exists();
 
         if ($isCaregiver) {
-            return 'Keluarga';
+            return 'Pendamping';
         }
 
         return 'Penerima';
@@ -166,7 +166,7 @@ class RecommendationController extends Controller
             foreach ($request->recipient_user_ids as $userId) {
                 $role = $this->getRecipientRole($userId);
 
-                $message = $role === 'Keluarga'
+                $message = $role === 'Pendamping'
                     ? 'Dr. ' . $clinicalNote->doctor_name . ' mengirim rekomendasi baru untuk ' . $clinicalNote->patient_name . '.'
                     : 'Dr. ' . $clinicalNote->doctor_name . ' mengirim rekomendasi baru untuk Anda.';
 
@@ -240,7 +240,7 @@ class RecommendationController extends Controller
                 DB::raw("
                     CASE
                         WHEN p.patient_id IS NOT NULL THEN 'Pasien'
-                        WHEN c.caregiver_id IS NOT NULL THEN 'Keluarga'
+                        WHEN c.caregiver_id IS NOT NULL THEN 'Pendamping'
                         ELSE 'Penerima'
                     END as role
                 ")

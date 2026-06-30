@@ -60,7 +60,7 @@ class MasterDataController extends Controller
     public function relationTypes()
     {
         return response()->json([
-            'message' => 'Data hubungan keluarga berhasil diambil',
+            'message' => 'Data hubungan pendamping berhasil diambil',
             'data' => DB::table('relation_types')
                 ->orderBy('relation_name')
                 ->get()

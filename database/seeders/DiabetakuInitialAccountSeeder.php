@@ -22,7 +22,7 @@ class DiabetakuInitialAccountSeeder extends Seeder
                 ['role_id' => 1, 'role_name' => 'Admin'],
                 ['role_id' => 2, 'role_name' => 'Dokter'],
                 ['role_id' => 3, 'role_name' => 'Pasien'],
-                ['role_id' => 4, 'role_name' => 'Keluarga'],
+                ['role_id' => 4, 'role_name' => 'Pendamping'],
             ] as $role) {
                 DB::table('roles')->updateOrInsert(
                     ['role_id' => $role['role_id']],

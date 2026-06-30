@@ -499,7 +499,7 @@ class HealthController extends Controller
     {
         $roleCase = "
             CASE
-                WHEN r.role_name ILIKE '%caregiver%' OR r.role_name ILIKE '%caregiver%' OR r.role_name ILIKE '%keluarga%' THEN 'Keluarga'
+                WHEN r.role_name ILIKE '%caregiver%' OR r.role_name ILIKE '%caregiver%' OR r.role_name ILIKE '%pendamping%' THEN 'Pendamping'
                 WHEN r.role_name ILIKE '%patient%' OR r.role_name ILIKE '%pasien%' THEN 'Pasien'
                 ELSE 'Pasien'
             END as input_by_role
@@ -645,7 +645,7 @@ class HealthController extends Controller
                 DB::raw('CAST(gr.glucose_value as TEXT) as value'),
                 DB::raw("'mg/dL' as unit"),
                 'u.full_name as input_by',
-                DB::raw("'Keluarga' as relation")
+                DB::raw("'Pendamping' as relation")
             );
 
         $physiological = DB::table('physiological_records as pr')
@@ -660,7 +660,7 @@ class HealthController extends Controller
                 DB::raw("CONCAT(COALESCE(pr.systolic::TEXT, '-'), '/', COALESCE(pr.diastolic::TEXT, '-')) as value"),
                 DB::raw("'mmHg' as unit"),
                 'u.full_name as input_by',
-                DB::raw("'Keluarga' as relation")
+                DB::raw("'Pendamping' as relation")
             );
 
         $activity = DB::table('activity_records as ar')
@@ -675,7 +675,7 @@ class HealthController extends Controller
                 DB::raw('CAST(ar.duration_minutes as TEXT) as value'),
                 DB::raw("'menit' as unit"),
                 'u.full_name as input_by',
-                DB::raw("'Keluarga' as relation")
+                DB::raw("'Pendamping' as relation")
             );
 
         $meal = DB::table('meal_records as mr')
@@ -690,7 +690,7 @@ class HealthController extends Controller
                 DB::raw("COALESCE(CAST(mr.carbohydrate_estimate as TEXT), '-') as value"),
                 DB::raw("'gram' as unit"),
                 'u.full_name as input_by',
-                DB::raw("'Keluarga' as relation")
+                DB::raw("'Pendamping' as relation")
             );
 
         $medication = DB::table('medication_consumption_logs as l')
@@ -708,7 +708,7 @@ class HealthController extends Controller
                 DB::raw('l.status::TEXT as value'),
                 DB::raw("''::TEXT as unit"),
                 'u.full_name as input_by',
-                DB::raw("'Keluarga' as relation")
+                DB::raw("'Pendamping' as relation")
             );
 
         $data = $glucose
