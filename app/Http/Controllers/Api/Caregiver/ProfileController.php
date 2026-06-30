@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Controllers\Api\Family;
+namespace App\Http\Controllers\Api\Caregiver;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
@@ -9,13 +9,13 @@ use Illuminate\Validation\Rule;
 
 class ProfileController extends Controller
 {
-    public function show($familyId)
+    public function show($caregiverId)
     {
         $profile = DB::table('caregivers as f')
             ->join('users as u', 'f.user_id', '=', 'u.user_id')
-            ->where('f.caregiver_id', $familyId)
+            ->where('f.caregiver_id', $caregiverId)
             ->select(
-                'f.caregiver_id as family_id',
+                'f.caregiver_id as caregiver_id',
                 'f.caregiver_id',
                 'u.user_id',
                 'u.full_name',
@@ -35,7 +35,7 @@ class ProfileController extends Controller
         }
 
         $totalPatients = DB::table('caregiver_patient_relations')
-            ->where('caregiver_id', $familyId)
+            ->where('caregiver_id', $caregiverId)
             ->where('status', 'Diterima')
             ->count();
 
@@ -53,7 +53,7 @@ class ProfileController extends Controller
         ]);
     }
 
-    public function update(Request $request, $familyId)
+    public function update(Request $request, $caregiverId)
     {
         $request->validate([
             'full_name' => 'required|string|max:150',
@@ -62,18 +62,18 @@ class ProfileController extends Controller
             'gender' => ['required', Rule::in(['Laki-laki', 'Perempuan'])],
         ]);
 
-        $family = DB::table('caregivers')
-            ->where('caregiver_id', $familyId)
+        $caregiver = DB::table('caregivers')
+            ->where('caregiver_id', $caregiverId)
             ->first();
 
-        if (!$family) {
+        if (!$caregiver) {
             return response()->json([
                 'message' => 'Profil keluarga tidak ditemukan'
             ], 404);
         }
 
         DB::table('users')
-            ->where('user_id', $family->user_id)
+            ->where('user_id', $caregiver->user_id)
             ->update([
                 'full_name' => $request->full_name,
                 'phone_number' => $request->phone_number,

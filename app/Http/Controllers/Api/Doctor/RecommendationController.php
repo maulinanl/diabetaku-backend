@@ -74,11 +74,11 @@ class RecommendationController extends Controller
             return 'Pasien';
         }
 
-        $isFamily = DB::table('caregivers')
+        $isCaregiver = DB::table('caregivers')
             ->where('user_id', $userId)
             ->exists();
 
-        if ($isFamily) {
+        if ($isCaregiver) {
             return 'Keluarga';
         }
 

@@ -109,7 +109,7 @@ class PrescriptionController extends Controller
         }
     }
 
-    private function notifyPrescriptionChanged($patientId, $prescriptionId, $title, $patientMessage, $familyMessage = null, $referenceType = 'prescription')
+    private function notifyPrescriptionChanged($patientId, $prescriptionId, $title, $patientMessage, $caregiverMessage = null, $referenceType = 'prescription')
     {
         $patientUserId = DB::table('patients')
             ->where('patient_id', $patientId)
@@ -135,7 +135,7 @@ class PrescriptionController extends Controller
                 $userId,
                 'Pengingat Obat',
                 $title,
-                $familyMessage ?? $patientMessage,
+                $caregiverMessage ?? $patientMessage,
                 $prescriptionId,
                 $referenceType
             );

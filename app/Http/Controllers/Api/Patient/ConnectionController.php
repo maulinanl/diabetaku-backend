@@ -94,18 +94,18 @@ class ConnectionController extends Controller
         ]);
     }
 
-    public function connectedFamilies($patientId)
+    public function connectedCaregivers($patientId)
     {
-        $families = DB::table('caregiver_patient_relations as fpr')
+        $caregivers = DB::table('caregiver_patient_relations as fpr')
             ->join('caregivers as f', 'fpr.caregiver_id', '=', 'f.caregiver_id')
             ->join('users as u', 'f.user_id', '=', 'u.user_id')
             ->join('relation_types as rt', 'fpr.relation_type_id', '=', 'rt.relation_type_id')
             ->where('fpr.patient_id', $patientId)
             ->where('fpr.status', 'Diterima')
             ->select(
-                'fpr.caregiver_id as family_id',
+                'fpr.caregiver_id as caregiver_id',
                 'fpr.caregiver_id',
-                'u.full_name as family_name',
+                'u.full_name as caregiver_name',
                 'u.phone_number',
                 'rt.relation_name',
                 'fpr.status',
@@ -116,7 +116,7 @@ class ConnectionController extends Controller
 
         return response()->json([
             'message' => 'Keluarga terhubung berhasil diambil',
-            'data' => $families
+            'data' => $caregivers
         ]);
     }
 
@@ -129,9 +129,9 @@ class ConnectionController extends Controller
             ->where('fpr.patient_id', $patientId)
             ->where('fpr.status', 'Menunggu')
             ->select(
-                'fpr.caregiver_id as family_id',
+                'fpr.caregiver_id as caregiver_id',
                 'fpr.caregiver_id',
-                'u.full_name as family_name',
+                'u.full_name as caregiver_name',
                 'rt.relation_name',
                 'fpr.status',
                 'fpr.requested_at'
@@ -290,17 +290,17 @@ class ConnectionController extends Controller
         });
     }
 
-    public function acceptFamilyRequest(Request $request)
+    public function acceptCaregiverRequest(Request $request)
     {
         $request->validate([
             'patient_id' => 'required|exists:patients,patient_id',
-            'family_id' => 'required|exists:caregivers,caregiver_id',
+            'caregiver_id' => 'required|exists:caregivers,caregiver_id',
         ]);
 
         DB::transaction(function () use ($request) {
             $updated = DB::table('caregiver_patient_relations')
                 ->where('patient_id', $request->patient_id)
-                ->where('caregiver_id', $request->family_id)
+                ->where('caregiver_id', $request->caregiver_id)
                 ->where('status', 'Menunggu')
                 ->update([
                     'status' => 'Diterima',
@@ -314,8 +314,8 @@ class ConnectionController extends Controller
                 throw new \Exception('Permintaan tidak ditemukan atau sudah diproses');
             }
 
-            $familyUserId = DB::table('caregivers')
-                ->where('caregiver_id', $request->family_id)
+            $caregiveryUserId = DB::table('caregivers')
+                ->where('caregiver_id', $request->caregiver_id)
                 ->value('user_id');
 
             $patientName = DB::table('patients as p')
@@ -324,12 +324,12 @@ class ConnectionController extends Controller
                 ->value('u.full_name');
 
             $this->createNotification(
-                $familyUserId,
+                $caregiverUserId,
                 'Permintaan Koneksi',
                 'Permintaan koneksi diterima',
                 ($patientName ?? 'Pasien') . ' telah menerima permintaan koneksi Anda.',
                 $request->patient_id,
-                'family_connection_accepted'
+                'caregiver_connection_accepted'
             );
         });
 
@@ -338,17 +338,17 @@ class ConnectionController extends Controller
         ]);
     }
 
-    public function rejectFamilyRequest(Request $request)
+    public function rejectCaregiverRequest(Request $request)
     {
         $request->validate([
             'patient_id' => 'required|exists:patients,patient_id',
-            'family_id' => 'required|exists:caregivers,caregiver_id',
+            'caregiver_id' => 'required|exists:caregivers,caregiver_id',
         ]);
 
         DB::transaction(function () use ($request) {
             DB::table('caregiver_patient_relations')
                 ->where('patient_id', $request->patient_id)
-                ->where('caregiver_id', $request->family_id)
+                ->where('caregiver_id', $request->caregiver_id)
                 ->where('status', 'Menunggu')
                 ->update([
                     'status' => 'Ditolak',
@@ -356,8 +356,8 @@ class ConnectionController extends Controller
                     'updated_at' => now(),
                 ]);
 
-            $familyUserId = DB::table('caregivers')
-                ->where('caregiver_id', $request->family_id)
+            $caregiverUserId = DB::table('caregivers')
+                ->where('caregiver_id', $request->caregiver_id)
                 ->value('user_id');
 
             $patientName = DB::table('patients as p')
@@ -366,12 +366,12 @@ class ConnectionController extends Controller
                 ->value('u.full_name');
 
             $this->createNotification(
-                $familyUserId,
+                $caregiverUserId,
                 'Permintaan Koneksi',
                 'Permintaan koneksi ditolak',
                 ($patientName ?? 'Pasien') . ' menolak permintaan koneksi Anda.',
                 $request->patient_id,
-                'family_connection_rejected'
+                'caregiver_connection_rejected'
             );
         });
 
@@ -380,16 +380,16 @@ class ConnectionController extends Controller
         ]);
     }
 
-    public function disconnectFamily(Request $request, $familyId)
+    public function disconnectCaregiver(Request $request, $caregiverId)
     {
         $request->validate([
             'patient_id' => 'required|exists:patients,patient_id',
         ]);
 
-        return DB::transaction(function () use ($request, $familyId) {
+        return DB::transaction(function () use ($request, $caregiverId) {
             DB::table('caregiver_patient_relations')
                 ->where('patient_id', $request->patient_id)
-                ->where('caregiver_id', $familyId)
+                ->where('caregiver_id', $caregiverId)
                 ->where('status', 'Diterima')
                 ->update([
                     'status' => 'Diputus',
@@ -397,8 +397,8 @@ class ConnectionController extends Controller
                     'updated_at' => now(),
                 ]);
 
-            $familyUserId = DB::table('caregivers')
-                ->where('caregiver_id', $familyId)
+            $caregiverUserId = DB::table('caregivers')
+                ->where('caregiver_id', $caregiverId)
                 ->value('user_id');
 
             $patientName = DB::table('patients as p')
@@ -407,12 +407,12 @@ class ConnectionController extends Controller
                 ->value('u.full_name');
 
             $this->createNotification(
-                $familyUserId,
+                $caregiverUserId,
                 'Putus Relasi',
                 'Relasi pasien terputus',
                 'Relasi dengan ' . ($patientName ?? 'pasien') . ' telah diputus.',
                 $request->patient_id,
-                'family_connection_disconnected'
+                'caregiver_connection_disconnected'
             );
 
             return response()->json([

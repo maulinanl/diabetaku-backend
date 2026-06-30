@@ -559,9 +559,9 @@ class PatientController extends Controller
         });
     }
 
-    public function families($patientId)
+    public function caregivers($patientId)
     {
-        $families = DB::table('caregiver_patient_relations as cpr')
+        $caregivers = DB::table('caregiver_patient_relations as cpr')
             ->join('caregivers as c', 'cpr.caregiver_id', '=', 'c.caregiver_id')
             ->join('users as u', 'c.user_id', '=', 'u.user_id')
             ->leftJoin('relation_types as rt', 'cpr.relation_type_id', '=', 'rt.relation_type_id')
@@ -569,7 +569,7 @@ class PatientController extends Controller
             ->where('cpr.status', 'Diterima')
             ->select(
                 'c.caregiver_id',
-                DB::raw('c.caregiver_id as family_id'),
+                DB::raw('c.caregiver_id as caregiver_id'),
                 'u.user_id',
                 'u.full_name',
                 'u.email',
@@ -580,7 +580,7 @@ class PatientController extends Controller
 
         return response()->json([
             'message' => 'Daftar keluarga pasien berhasil diambil',
-            'data' => $families
+            'data' => $caregivers
         ]);
     }
 

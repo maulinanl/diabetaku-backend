@@ -123,7 +123,7 @@ class AuthController extends Controller
         ], 201);
     }
 
-    public function registerFamily(Request $request)
+    public function registerCaregiver(Request $request)
     {
         $request->validate([
             'full_name' => 'required|string|max:150',
@@ -154,8 +154,6 @@ class AuthController extends Controller
 
             return [
                 'user_id' => $userId,
-                // Frontend lama masih membaca family_id, jadi tetap dikirim sebagai alias.
-                'family_id' => $caregiverId,
                 'caregiver_id' => $caregiverId,
             ];
         });
@@ -227,7 +225,7 @@ class AuthController extends Controller
 
         $doctor = null;
         $patient = null;
-        $family = null;
+        $caregiver = null;
         $caregiver = null;
 
         if ($user->role_id == 2) {
@@ -274,14 +272,6 @@ class AuthController extends Controller
             $caregiver = DB::table('caregivers')
                 ->where('user_id', $user->user_id)
                 ->first();
-
-            if ($caregiver) {
-                // Alias agar Flutter lama yang masih memakai family_id tetap jalan.
-                $family = (object) array_merge((array) $caregiver, [
-                    'family_id' => $caregiver->caregiver_id,
-                    'caregiver_id' => $caregiver->caregiver_id,
-                ]);
-            }
         }
 
         $user->update([
@@ -298,7 +288,7 @@ class AuthController extends Controller
             'user' => $user->fresh(),
             'doctor' => $doctor,
             'patient' => $patient,
-            'family' => $family,
+            'caregiver' => $caregiver,
         ]);
     }
 

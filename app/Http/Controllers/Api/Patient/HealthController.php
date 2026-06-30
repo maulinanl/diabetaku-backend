@@ -74,7 +74,7 @@ class HealthController extends Controller
             ->value('dpr.patient_id');
     }
 
-    private function notifyFamilyValidationResult($record, $recordType, $status)
+    private function notifyCaregiverValidationResult($record, $recordType, $status)
     {
         $inputByUserId = $record->input_by_user_id ?? null;
         if (!$inputByUserId) return;
@@ -499,7 +499,7 @@ class HealthController extends Controller
     {
         $roleCase = "
             CASE
-                WHEN r.role_name ILIKE '%caregiver%' OR r.role_name ILIKE '%family%' OR r.role_name ILIKE '%keluarga%' THEN 'Keluarga'
+                WHEN r.role_name ILIKE '%caregiver%' OR r.role_name ILIKE '%caregiver%' OR r.role_name ILIKE '%keluarga%' THEN 'Keluarga'
                 WHEN r.role_name ILIKE '%patient%' OR r.role_name ILIKE '%pasien%' THEN 'Pasien'
                 ELSE 'Pasien'
             END as input_by_role
@@ -762,7 +762,7 @@ class HealthController extends Controller
                 'updated_at' => now(),
             ]);
 
-        $this->notifyFamilyValidationResult($record, $request->record_type, $newStatus);
+        $this->notifyCaregiverValidationResult($record, $request->record_type, $newStatus);
 
         if ($newStatus === 'Valid') {
             if ($request->record_type === 'glucose') {

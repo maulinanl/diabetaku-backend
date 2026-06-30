@@ -209,11 +209,9 @@ class NotificationController extends Controller
         $data->diabetes_type = $patient->diabetes_type;
     }
 
-    private function attachFamilyDetail($data, int $familyId): void
+    private function attachCaregiverDetail($data, int $caregiverId): void
     {
-        // Database terbaru memakai caregivers, tetapi response tetap mengirim alias family_id
-        // agar frontend lama tidak perlu diganti sekaligus.
-        $family = DB::table('caregivers as c')
+        $caregiver = DB::table('caregivers as c')
             ->join('users as u', 'c.user_id', '=', 'u.user_id')
             ->leftJoin('caregiver_patient_relations as cpr', function ($join) use ($data) {
                 $join->on('c.caregiver_id', '=', 'cpr.caregiver_id');
@@ -227,11 +225,10 @@ class NotificationController extends Controller
                 }
             })
             ->leftJoin('relation_types as rt', 'cpr.relation_type_id', '=', 'rt.relation_type_id')
-            ->where('c.caregiver_id', $familyId)
+            ->where('c.caregiver_id', $caregiverId)
             ->select(
                 'c.caregiver_id',
-                DB::raw('c.caregiver_id as family_id'),
-                'u.full_name as family_name',
+                'u.full_name as caregiver_name',
                 'rt.relation_name',
                 'cpr.status',
                 'cpr.requested_at',
@@ -244,24 +241,23 @@ class NotificationController extends Controller
             ->orderByDesc('cpr.requested_at')
             ->first();
 
-        if (!$family) {
+        if (!$caregiver) {
             return;
         }
 
-        $data->family_id = $family->family_id;
-        $data->caregiver_id = $family->caregiver_id;
-        $data->family_name = $family->family_name;
-        $data->full_name = $family->family_name;
-        $data->name = $family->family_name;
-        $data->initial = $this->initialsFromName($family->family_name);
-        $data->relation = $family->relation_name ?? 'Keluarga';
-        $data->relation_name = $family->relation_name ?? 'Keluarga';
-        $data->status = $family->status ?? 'Menunggu';
-        $data->requested_at = $family->requested_at ?? $data->created_at;
-        $data->responded_at = $family->responded_at;
-        $data->connected_at = $family->connected_at;
-        $data->disconnected_at = $family->disconnected_at;
-        $data->relation_updated_at = $family->relation_updated_at;
+        $data->caregiver_id = $caregiver->caregiver_id;
+        $data->caregiver_name = $caregiver->caregiver_name;
+        $data->full_name = $caregiver->caregiver_name;
+        $data->name = $caregiver->caregiver_name;
+        $data->initial = $this->initialsFromName($caregiver->caregiver_name);
+        $data->relation = $caregiver->relation_name ?? 'Pendamping';
+        $data->relation_name = $caregiver->relation_name ?? 'Pendamping';
+        $data->status = $caregiver->status ?? 'Menunggu';
+        $data->requested_at = $caregiver->requested_at ?? $data->created_at;
+        $data->responded_at = $caregiver->responded_at;
+        $data->connected_at = $caregiver->connected_at;
+        $data->disconnected_at = $caregiver->disconnected_at;
+        $data->relation_updated_at = $caregiver->relation_updated_at;
     }
 
 
@@ -273,8 +269,8 @@ class NotificationController extends Controller
         $baseInputColumns = [
             DB::raw("COALESCE(iu.full_name, '-') as input_by"),
             DB::raw("COALESCE(iu.full_name, '-') as input_by_name"),
-            DB::raw("CASE WHEN r.role_name ILIKE '%caregiver%' OR r.role_name ILIKE '%family%' OR r.role_name ILIKE '%keluarga%' THEN 'Keluarga' ELSE 'Pasien' END as input_by_role"),
-            DB::raw("CASE WHEN r.role_name ILIKE '%caregiver%' OR r.role_name ILIKE '%family%' OR r.role_name ILIKE '%keluarga%' THEN 'Keluarga' ELSE 'Pasien' END as relation"),
+            DB::raw("CASE WHEN r.role_name ILIKE '%caregiver%' OR r.role_name ILIKE '%pendamping%' OR r.role_name ILIKE '%pendamping%' THEN 'Pendamping' ELSE 'Pasien' END as input_by_role"),
+            DB::raw("CASE WHEN r.role_name ILIKE '%caregiver%' OR r.role_name ILIKE '%pendamping%' OR r.role_name ILIKE '%pendamping%' THEN 'Pendamping' ELSE 'Pasien' END as relation"),
         ];
 
         $record = null;
@@ -529,12 +525,12 @@ class NotificationController extends Controller
         }
 
         if (in_array($referenceType, [
-            'family_request',
-            'family_connection_request',
+            'caregiver_request',
+            'caregiver_connection_request',
         ], true)) {
-            $this->attachFamilyDetail($data, (int) $data->reference_id);
+            $this->attachCaregiverDetail($data, (int) $data->reference_id);
 
-            // Untuk permintaan keluarga, status harus mengikuti tabel caregiver_patient_relations.
+            // Untuk permintaan pendamping, status harus mengikuti tabel caregiver_patient_relations.
             // Jadi setelah pasien klik Terima/Tolak, detail notifikasi ikut berubah.
             if (empty($data->status) || $data->status === '-') {
                 $data->status = $this->statusFromReferenceType($referenceType, $data->title, $data->message);
@@ -544,27 +540,27 @@ class NotificationController extends Controller
         }
 
         if (in_array($referenceType, [
-            'family_connection_disconnected',
-            'family_disconnected',
-            'family_patient_disconnected',
+            'caregiver_connection_disconnected',
+            'caregiver_disconnected',
+            'caregiver_patient_disconnected',
         ], true)) {
             $patientIdForUser = DB::table('patients')
                 ->where('user_id', $data->user_id)
                 ->value('patient_id');
 
-            $familyIdForUser = DB::table('caregivers')
+            $caregiverIdForUser = DB::table('caregivers')
                 ->where('user_id', $data->user_id)
                 ->value('caregiver_id');
 
-            // Kalau penerima notifikasi adalah pasien, reference_id berisi family_id.
-            // Detail harus menampilkan data keluarga, bukan data dokter.
+            // Kalau penerima notifikasi adalah pasien, reference_id berisi caregiver_id.
+            // Detail harus menampilkan data pendamping, bukan data dokter.
             if ($patientIdForUser) {
-                $this->attachFamilyDetail($data, (int) $data->reference_id);
+                $this->attachCaregiverDetail($data, (int) $data->reference_id);
             }
 
-            // Kalau penerima notifikasi adalah keluarga, reference_id berisi patient_id.
+            // Kalau penerima notifikasi adalah pendamping, reference_id berisi patient_id.
             // Detail harus menampilkan data pasien.
-            if (!$patientIdForUser && $familyIdForUser) {
+            if (!$patientIdForUser && $caregiverIdForUser) {
                 $this->attachPatientDetail($data, (int) $data->reference_id);
             }
 
@@ -573,8 +569,8 @@ class NotificationController extends Controller
         }
 
         if (in_array($referenceType, [
-            'family_connection_accepted',
-            'family_connection_rejected',
+            'caregiver_connection_accepted',
+            'caregiver_connection_rejected',
         ], true)) {
             $this->attachPatientDetail($data, (int) $data->reference_id);
             $data->status = $this->statusFromReferenceType($referenceType, $data->title, $data->message);

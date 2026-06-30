@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Controllers\Api\Family;
+namespace App\Http\Controllers\Api\Caregiver;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
