@@ -20,6 +20,7 @@ class ProfileController extends Controller
                 'u.user_id',
                 'u.full_name',
                 'u.email',
+                'u.email_verified_at',
                 'u.phone_number',
                 'p.date_of_birth',
                 'u.gender',
@@ -217,7 +218,6 @@ class ProfileController extends Controller
 
         $items = [
             'glucose' => $glucoseDone,
-            'physiological' => $physiologicalDone,
             'medication' => $medicationDone,
             'activity' => $activityDone,
             'meal' => $mealDone,
@@ -258,7 +258,7 @@ class ProfileController extends Controller
                 'pending_validation_count' => $pendingValidationCount,
                 'daily_checklist' => [
                     'completed' => $completed,
-                    'total' => 5,
+                    'total' => 4,
                     'items' => $items,
                 ],
             ],

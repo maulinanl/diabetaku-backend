@@ -58,7 +58,7 @@ Route::prefix('master')->group(function () {
     Route::get('/genders', [MasterDataController::class, 'genders']);
 });
 
-Route::prefix('doctor')->group(function () {
+Route::prefix('doctor')->middleware(['auth:sanctum', 'role:2'])->group(function () {
     Route::get('/patients/{doctorId}', [DoctorPatientController::class, 'index']);
     Route::get('/patients/{patientId}/dashboard', [DoctorPatientController::class, 'dashboard']);
     Route::get('/patients/{patientId}/glucose', [DoctorPatientController::class, 'glucose']);
@@ -105,7 +105,7 @@ Route::prefix('doctor')->group(function () {
     Route::patch('/prescriptions/{prescriptionId}/stop', [PrescriptionController::class, 'stop']);
 });
 
-Route::prefix('patient')->group(function () {
+Route::prefix('patient')->middleware(['auth:sanctum', 'role:3'])->group(function () {
     Route::get('/profile/{patientId}', [PatientProfileController::class, 'show']);
     Route::put('/profile/{patientId}', [PatientProfileController::class, 'update']);
 
@@ -139,7 +139,7 @@ Route::prefix('patient')->group(function () {
     Route::get('/dashboard/{patientId}', [PatientProfileController::class, 'dashboard']);
 });
 
-Route::prefix('caregiver')->group(function () {
+Route::prefix('caregiver')->middleware(['auth:sanctum', 'role:4'])->group(function () {
     Route::get('/profile/{caregiverId}', [CaregiverProfileController::class, 'show']);
     Route::put('/profile/{caregiverId}', [CaregiverProfileController::class, 'update']);
 
@@ -164,7 +164,7 @@ Route::prefix('caregiver')->group(function () {
     Route::post('/patients/{patientId}/medication', [CaregiverHealthController::class, 'storeMedication']);
 });
 
-Route::prefix('notifications')->group(function () {
+Route::prefix('notifications')->middleware('auth:sanctum')->group(function () {
 
     Route::get('/user/{userId}', [NotificationController::class, 'index']);
 
@@ -176,11 +176,9 @@ Route::prefix('notifications')->group(function () {
 
     Route::post('/', [NotificationController::class, 'store']);
 
-    Route::middleware('auth:sanctum')->group(function () {
-        Route::post('/fcm-token', [NotificationController::class, 'saveFcmToken']);
-        Route::post('/fcm-token/deactivate', [NotificationController::class, 'deactivateFcmToken']);
-        Route::post('/test-push', [NotificationController::class, 'testPush']);
-    });
+    Route::post('/fcm-token', [NotificationController::class, 'saveFcmToken']);
+    Route::post('/fcm-token/deactivate', [NotificationController::class, 'deactivateFcmToken']);
+    Route::post('/test-push', [NotificationController::class, 'testPush']);
 });
 
 Route::prefix('admin')->group(function () {

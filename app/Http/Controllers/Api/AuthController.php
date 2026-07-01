@@ -158,8 +158,11 @@ class AuthController extends Controller
             ];
         });
 
+        $user = User::find($data['user_id']);
+        event(new Registered($user));
+
         return response()->json([
-            'message' => 'Registrasi pendamping berhasil.',
+            'message' => 'Registrasi pendamping berhasil. Silakan cek email untuk verifikasi akun.',
             'data' => $data
         ], 201);
     }
@@ -225,7 +228,6 @@ class AuthController extends Controller
 
         $doctor = null;
         $patient = null;
-        $caregiver = null;
         $caregiver = null;
 
         if ($user->role_id == 2) {

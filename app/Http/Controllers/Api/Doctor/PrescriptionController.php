@@ -117,7 +117,7 @@ class PrescriptionController extends Controller
 
         $this->createNotification(
             $patientUserId,
-            'Pengingat Obat',
+            'Resep Obat',
             $title,
             $patientMessage,
             $prescriptionId,
@@ -133,7 +133,7 @@ class PrescriptionController extends Controller
         foreach ($caregiverUserIds as $userId) {
             $this->createNotification(
                 $userId,
-                'Pengingat Obat',
+                'Resep Obat',
                 $title,
                 $caregiverMessage ?? $patientMessage,
                 $prescriptionId,

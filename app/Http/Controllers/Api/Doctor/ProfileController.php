@@ -20,6 +20,7 @@ class ProfileController extends Controller
                 'u.user_id',
                 'u.full_name',
                 'u.email',
+                'u.email_verified_at',
                 'u.phone_number',
                 'u.gender',
                 'd.specialization_id',

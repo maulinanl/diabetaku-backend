@@ -39,13 +39,33 @@ class ProfileController extends Controller
             ->where('status', 'Diterima')
             ->count();
 
-        $totalMedicationChecklists = DB::table('medication_consumption_logs as mcl')
-            ->where('mcl.input_by_user_id', $profile->user_id)
-            ->count();
+        $today = now()->toDateString();
+
+        // Jumlah jadwal minum obat hari ini dari seluruh pasien dampingan.
+        // 1 resep dengan 3 sesi minum dihitung sebagai 3 jadwal, karena yang
+        // dipantau pendamping adalah frekuensi pengingat minum obat harian.
+        $totalMedicationSchedulesToday = DB::table('caregiver_patient_relations as cpr')
+            ->join('doctor_patient_relations as dpr', 'dpr.patient_id', '=', 'cpr.patient_id')
+            ->join('prescriptions as p', 'p.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+            ->join('prescription_schedules as ps', 'ps.prescription_id', '=', 'p.prescription_id')
+            ->where('cpr.caregiver_id', $caregiverId)
+            ->where('cpr.status', 'Diterima')
+            ->where('p.status_prescription', 'Aktif')
+            ->where(function ($query) use ($today) {
+                $query->whereNull('p.start_date')
+                    ->orWhere('p.start_date', '<=', $today);
+            })
+            ->where(function ($query) use ($today) {
+                $query->whereNull('p.end_date')
+                    ->orWhere('p.end_date', '>=', $today);
+            })
+            ->count('ps.prescription_schedule_id');
 
         $data = (array) $profile;
         $data['total_patients'] = $totalPatients;
-        $data['total_medication_checklists'] = $totalMedicationChecklists;
+        $data['total_medication_schedules_today'] = $totalMedicationSchedulesToday;
+        // Backward-compatible key for older Flutter builds.
+        $data['total_medication_checklists'] = $totalMedicationSchedulesToday;
 
         return response()->json([
             'message' => 'Profil pendamping berhasil diambil',
