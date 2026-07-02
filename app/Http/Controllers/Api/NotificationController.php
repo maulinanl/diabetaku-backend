@@ -209,6 +209,49 @@ class NotificationController extends Controller
         $data->diabetes_type = $patient->diabetes_type;
     }
 
+    private function attachDoctorPatientDisconnectionDetail($data, int $patientId): void
+    {
+        $this->attachPatientDetail($data, $patientId);
+
+        $relation = DB::table('doctor_patient_relations as dpr')
+            ->leftJoin('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
+            ->leftJoin('users as du', 'd.user_id', '=', 'du.user_id')
+            ->leftJoin('specializations as s', 'd.specialization_id', '=', 's.specialization_id')
+            ->where('dpr.patient_id', $patientId)
+            ->where('dpr.status', 'Diputus')
+            ->select(
+                'dpr.doctor_patient_relation_id',
+                'dpr.doctor_id',
+                'dpr.status',
+                'dpr.connected_at',
+                'dpr.disconnected_at',
+                'dpr.updated_at as relation_updated_at',
+                'du.full_name as doctor_name',
+                's.specialization_name',
+                'd.institution'
+            )
+            ->orderByDesc('dpr.disconnected_at')
+            ->orderByDesc('dpr.updated_at')
+            ->first();
+
+        if (!$relation) {
+            $data->status = 'Tidak Terhubung';
+            return;
+        }
+
+        $data->doctor_patient_relation_id = $relation->doctor_patient_relation_id;
+        $data->doctor_id = $relation->doctor_id;
+        $data->doctor_name = $relation->doctor_name;
+        $data->specialization_name = $relation->specialization_name ?? '-';
+        $data->institution = $relation->institution ?? '-';
+        $data->doctor_info = trim(($relation->specialization_name ?? '-') . ' • ' . ($relation->institution ?? '-'));
+        $data->status = 'Tidak Terhubung';
+        $data->relation_status = 'Tidak Terhubung';
+        $data->connected_at = $relation->connected_at;
+        $data->disconnected_at = $relation->disconnected_at;
+        $data->relation_updated_at = $relation->relation_updated_at;
+    }
+
     private function attachCaregiverDetail($data, int $caregiverId): void
     {
         $caregiver = DB::table('caregivers as c')
@@ -277,11 +320,16 @@ class NotificationController extends Controller
 
         if ($recordType === 'glucose') {
             $record = DB::table('glucose_records as gr')
+                ->join('patients as p', 'gr.patient_id', '=', 'p.patient_id')
+                ->join('users as pu', 'p.user_id', '=', 'pu.user_id')
                 ->leftJoin('users as iu', 'gr.input_by_user_id', '=', 'iu.user_id')
                 ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
                 ->where('gr.glucose_id', $recordId)
                 ->select(array_merge([
                     'gr.*',
+                    'gr.patient_id',
+                    DB::raw("pu.full_name as patient_name"),
+                    DB::raw("pu.full_name as full_name"),
                     DB::raw("'glucose' as record_type"),
                     'gr.glucose_id as record_id',
                     DB::raw("CONCAT('Glukosa ', gr.measurement_type) as title"),
@@ -295,11 +343,15 @@ class NotificationController extends Controller
         if ($recordType === 'physiological') {
             $record = DB::table('physiological_records as pr')
                 ->join('patients as p', 'pr.patient_id', '=', 'p.patient_id')
+                ->join('users as pu', 'p.user_id', '=', 'pu.user_id')
                 ->leftJoin('users as iu', 'pr.input_by_user_id', '=', 'iu.user_id')
                 ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
                 ->where('pr.physiological_id', $recordId)
                 ->select(array_merge([
                     'pr.*',
+                    'pr.patient_id',
+                    DB::raw("pu.full_name as patient_name"),
+                    DB::raw("pu.full_name as full_name"),
                     'p.height_cm',
                     DB::raw("CASE WHEN pr.weight_kg IS NOT NULL AND p.height_cm IS NOT NULL AND p.height_cm > 0 THEN ROUND((pr.weight_kg / POWER((p.height_cm / 100.0), 2))::numeric, 1) ELSE NULL END as bmi"),
                     DB::raw("'physiological' as record_type"),
@@ -314,12 +366,17 @@ class NotificationController extends Controller
 
         if ($recordType === 'activity') {
             $record = DB::table('activity_records as ar')
+                ->join('patients as p', 'ar.patient_id', '=', 'p.patient_id')
+                ->join('users as pu', 'p.user_id', '=', 'pu.user_id')
                 ->leftJoin('activity_types as at', 'ar.activity_type_id', '=', 'at.activity_type_id')
                 ->leftJoin('users as iu', 'ar.input_by_user_id', '=', 'iu.user_id')
                 ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
                 ->where('ar.activity_id', $recordId)
                 ->select(array_merge([
                     'ar.*',
+                    'ar.patient_id',
+                    DB::raw("pu.full_name as patient_name"),
+                    DB::raw("pu.full_name as full_name"),
                     'at.activity_name',
                     DB::raw("'activity' as record_type"),
                     'ar.activity_id as record_id',
@@ -333,12 +390,17 @@ class NotificationController extends Controller
 
         if ($recordType === 'meal') {
             $record = DB::table('meal_records as mr')
+                ->join('patients as p', 'mr.patient_id', '=', 'p.patient_id')
+                ->join('users as pu', 'p.user_id', '=', 'pu.user_id')
                 ->leftJoin('meal_types as mt', 'mr.meal_type_id', '=', 'mt.meal_type_id')
                 ->leftJoin('users as iu', 'mr.input_by_user_id', '=', 'iu.user_id')
                 ->leftJoin('roles as r', 'iu.role_id', '=', 'r.role_id')
                 ->where('mr.meal_id', $recordId)
                 ->select(array_merge([
                     'mr.*',
+                    'mr.patient_id',
+                    DB::raw("pu.full_name as patient_name"),
+                    DB::raw("pu.full_name as full_name"),
                     'mt.meal_type_name',
                     DB::raw("'meal' as record_type"),
                     'mr.meal_id as record_id',
@@ -354,6 +416,9 @@ class NotificationController extends Controller
             $record = DB::table('medication_consumption_logs as l')
                 ->join('prescription_schedules as ps', 'l.prescription_schedule_id', '=', 'ps.prescription_schedule_id')
                 ->join('prescriptions as p', 'ps.prescription_id', '=', 'p.prescription_id')
+                ->join('doctor_patient_relations as dpr', 'p.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+                ->join('patients as pt', 'dpr.patient_id', '=', 'pt.patient_id')
+                ->join('users as pu', 'pt.user_id', '=', 'pu.user_id')
                 ->leftJoin('medications as m', 'p.medication_id', '=', 'm.medication_id')
                 ->leftJoin('medication_sessions as ms', 'ps.session_id', '=', 'ms.session_id')
                 ->leftJoin('users as iu', 'l.input_by_user_id', '=', 'iu.user_id')
@@ -361,6 +426,9 @@ class NotificationController extends Controller
                 ->where('l.log_id', $recordId)
                 ->select(array_merge([
                     'l.*',
+                    'dpr.patient_id',
+                    DB::raw("pu.full_name as patient_name"),
+                    DB::raw("pu.full_name as full_name"),
                     'm.medication_name',
                     'ms.session_name',
                     DB::raw("TRIM(COALESCE(p.quantity::TEXT, '') || ' ' || COALESCE(p.quantity_unit, '')) as dose_per_session"),
@@ -394,6 +462,8 @@ class NotificationController extends Controller
             ->leftJoin('medications as m', 'p.medication_id', '=', 'm.medication_id')
             ->leftJoin('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
             ->leftJoin('users as du', 'd.user_id', '=', 'du.user_id')
+            ->leftJoin('patients as pt', 'dpr.patient_id', '=', 'pt.patient_id')
+            ->leftJoin('users as pu', 'pt.user_id', '=', 'pu.user_id')
             ->where('p.prescription_id', $prescriptionId)
             ->select(
                 'p.prescription_id',
@@ -414,7 +484,8 @@ class NotificationController extends Controller
                 'p.updated_at as prescription_updated_at',
                 'm.medication_name',
                 'm.description as medication_description',
-                'du.full_name as doctor_name'
+                'du.full_name as doctor_name',
+                'pu.full_name as patient_name'
             )
             ->first();
 
@@ -426,6 +497,7 @@ class NotificationController extends Controller
             $data->{$key} = $value;
         }
 
+        $data->patient_name = $prescription->patient_name ?? ($data->patient_name ?? null);
         $data->initial = $this->initialsFromName($prescription->doctor_name ?? 'Dokter');
 
         $data->schedules = DB::table('prescription_schedules as ps')
@@ -454,13 +526,17 @@ class NotificationController extends Controller
             ->join('doctor_patient_relations as dpr', 'cn.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
             ->join('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
             ->join('users as du', 'd.user_id', '=', 'du.user_id')
+            ->join('patients as pt', 'dpr.patient_id', '=', 'pt.patient_id')
+            ->join('users as pu', 'pt.user_id', '=', 'pu.user_id')
             ->select(
                 'r.recommendation_id',
                 'r.clinical_note_id',
                 'r.category',
                 'r.recommendation_text',
                 'r.created_at',
-                'du.full_name as doctor_name'
+                'dpr.patient_id',
+                'du.full_name as doctor_name',
+                'pu.full_name as patient_name'
             );
 
         if ($referenceType === 'recommendation') {
@@ -481,6 +557,8 @@ class NotificationController extends Controller
                 ->join('doctor_patient_relations as dpr', 'cn.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
                 ->join('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
                 ->join('users as du', 'd.user_id', '=', 'du.user_id')
+                ->join('patients as pt', 'dpr.patient_id', '=', 'pt.patient_id')
+                ->join('users as pu', 'pt.user_id', '=', 'pu.user_id')
                 ->where('r.recommendation_id', $referenceId)
                 ->select(
                     'r.recommendation_id',
@@ -488,7 +566,9 @@ class NotificationController extends Controller
                     'r.category',
                     'r.recommendation_text',
                     'r.created_at',
-                    'du.full_name as doctor_name'
+                    'dpr.patient_id',
+                    'du.full_name as doctor_name',
+                    'pu.full_name as patient_name'
                 )
                 ->orderBy('r.recommendation_id')
                 ->get();
@@ -503,6 +583,8 @@ class NotificationController extends Controller
         $data->recommendation_id = $first->recommendation_id;
         $data->clinical_note_id = $first->clinical_note_id;
         $data->doctor_name = $first->doctor_name;
+        $data->patient_id = $first->patient_id ?? ($data->patient_id ?? null);
+        $data->patient_name = $first->patient_name ?? ($data->patient_name ?? null);
         $data->category = $recommendations->count() === 1 ? $first->category : $recommendations->count() . ' Rekomendasi';
         $data->recommendation_text = $first->recommendation_text;
         $data->recommendations = $recommendations;
@@ -540,7 +622,7 @@ class NotificationController extends Controller
         }
 
         if ($referenceType === 'doctor_patient_disconnected') {
-            $this->attachPatientDetail($data, (int) $data->reference_id);
+            $this->attachDoctorPatientDisconnectionDetail($data, (int) $data->reference_id);
             $data->status = 'Tidak Terhubung';
             return $data;
         }
@@ -595,6 +677,13 @@ class NotificationController extends Controller
         ], true)) {
             $this->attachPatientDetail($data, (int) $data->reference_id);
             $data->status = $this->statusFromReferenceType($referenceType, $data->title, $data->message);
+            return $data;
+        }
+
+        if ($referenceType === 'validation_result') {
+            $this->attachPatientDetail($data, (int) $data->reference_id);
+            $data->record_type = 'validation_result';
+            $data->validation_status = $this->statusFromReferenceType($referenceType, $data->title, $data->message);
             return $data;
         }
 

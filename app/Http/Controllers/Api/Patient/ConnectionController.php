@@ -68,6 +68,74 @@ class ConnectionController extends Controller
         }
     }
 
+
+    private function activeCaregiverUserIds(int $patientId)
+    {
+        return DB::table('caregiver_patient_relations as cpr')
+            ->join('caregivers as c', 'cpr.caregiver_id', '=', 'c.caregiver_id')
+            ->where('cpr.patient_id', $patientId)
+            ->where('cpr.status', 'Diterima')
+            ->pluck('c.user_id');
+    }
+
+    private function activePrescriptionsForRelation(int $doctorId, int $patientId)
+    {
+        return DB::table('prescriptions as p')
+            ->join('doctor_patient_relations as dpr', 'p.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+            ->join('medications as m', 'p.medication_id', '=', 'm.medication_id')
+            ->where('dpr.doctor_id', $doctorId)
+            ->where('dpr.patient_id', $patientId)
+            ->where('p.status_prescription', 'Aktif')
+            ->select('p.prescription_id', 'm.medication_name')
+            ->get();
+    }
+
+    private function notifyCaregiversDoctorPatientDisconnected(int $patientId, ?string $patientName, ?string $doctorName): void
+    {
+        foreach ($this->activeCaregiverUserIds($patientId) as $caregiverUserId) {
+            $this->createNotification(
+                $caregiverUserId,
+                'Putus Relasi',
+                'Relasi dokter pasien terputus',
+                'Relasi dokter ' . ($doctorName ?? 'Dokter') . ' dengan ' . ($patientName ?? 'pasien') . ' telah diputus.',
+                $patientId,
+                'doctor_patient_disconnected'
+            );
+        }
+    }
+
+    private function notifyCaregiversPrescriptionsStoppedByRelation(int $patientId, ?string $patientName, ?string $doctorName, $prescriptions): void
+    {
+        if ($prescriptions->isEmpty()) {
+            return;
+        }
+
+        $patientUserId = DB::table('patients')->where('patient_id', $patientId)->value('user_id');
+        $caregiverUserIds = $this->activeCaregiverUserIds($patientId);
+
+        foreach ($prescriptions as $prescription) {
+            $this->createNotification(
+                $patientUserId,
+                'Resep Obat',
+                'Resep Obat Dihentikan',
+                'Resep ' . ($prescription->medication_name ?? 'obat') . ' dihentikan karena relasi dengan dokter ' . ($doctorName ?? 'Dokter') . ' terputus.',
+                $prescription->prescription_id,
+                'prescription_stopped'
+            );
+
+            foreach ($caregiverUserIds as $caregiverUserId) {
+                $this->createNotification(
+                    $caregiverUserId,
+                    'Resep Obat',
+                    'Resep Obat Dihentikan',
+                    'Resep ' . ($prescription->medication_name ?? 'obat') . ' untuk ' . ($patientName ?? 'pasien') . ' dihentikan karena relasi dengan dokter ' . ($doctorName ?? 'Dokter') . ' terputus.',
+                    $prescription->prescription_id,
+                    'prescription_stopped'
+                );
+            }
+        }
+    }
+
     public function connectedDoctors($patientId)
     {
         $doctors = DB::table('doctor_patient_relations as dpr')
@@ -260,6 +328,11 @@ class ConnectionController extends Controller
                 ], 404);
             }
 
+            $activePrescriptions = $this->activePrescriptionsForRelation(
+                (int) $doctorId,
+                (int) $request->patient_id
+            );
+
             app(PrescriptionLifecycleService::class)
                 ->finishActivePrescriptionsForRelation(
                     (int) $doctorId,
@@ -275,6 +348,11 @@ class ConnectionController extends Controller
                 ->where('p.patient_id', $request->patient_id)
                 ->value('u.full_name');
 
+            $doctorName = DB::table('doctors as d')
+                ->join('users as u', 'd.user_id', '=', 'u.user_id')
+                ->where('d.doctor_id', $doctorId)
+                ->value('u.full_name');
+
             $this->createNotification(
                 $doctorUserId,
                 'Putus Relasi',
@@ -282,6 +360,19 @@ class ConnectionController extends Controller
                 'Relasi dengan ' . ($patientName ?? 'pasien') . ' telah diputus. Data lama masih dapat dilihat.',
                 $request->patient_id,
                 'doctor_patient_disconnected'
+            );
+
+            $this->notifyCaregiversDoctorPatientDisconnected(
+                (int) $request->patient_id,
+                $patientName,
+                $doctorName
+            );
+
+            $this->notifyCaregiversPrescriptionsStoppedByRelation(
+                (int) $request->patient_id,
+                $patientName,
+                $doctorName,
+                $activePrescriptions
             );
 
             return response()->json([

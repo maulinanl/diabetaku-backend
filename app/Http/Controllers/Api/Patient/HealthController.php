@@ -101,6 +101,17 @@ class HealthController extends Controller
 
         if (!$notificationTypeId) return;
 
+        $recordIdMap = [
+            'glucose' => 'glucose_id',
+            'physiological' => 'physiological_id',
+            'activity' => 'activity_id',
+            'meal' => 'meal_id',
+            'medication' => 'log_id',
+        ];
+
+        $recordIdKey = $recordIdMap[$recordType] ?? null;
+        $recordId = $recordIdKey ? ($record->{$recordIdKey} ?? null) : null;
+
         $this->createNotification(
             $inputByUserId,
             $notificationTypeId,
@@ -108,8 +119,8 @@ class HealthController extends Controller
             $status === 'Valid'
                 ? "{$patientName} menerima {$label} yang Anda tambahkan."
                 : "{$patientName} menolak {$label} yang Anda tambahkan.",
-            $patientId,
-            'validation_result'
+            $recordId ?: $patientId,
+            $recordId ? "validation_{$recordType}" : 'validation_result'
         );
     }
 
