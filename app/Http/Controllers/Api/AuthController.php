@@ -244,7 +244,6 @@ class AuthController extends Controller
                 return response()->json([
                     'status' => 'admin_rejected',
                     'message' => 'Registrasi dokter ditolak admin',
-                    'rejection_reason' => $doctor->rejection_reason,
                 ], 403);
             }
 

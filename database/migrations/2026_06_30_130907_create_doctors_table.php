@@ -36,8 +36,6 @@ return new class extends Migration
 
             $table->timestamp('verified_at')->nullable();
 
-            $table->text('rejection_reason')->nullable();
-
             $table->timestamps();
         });
     }

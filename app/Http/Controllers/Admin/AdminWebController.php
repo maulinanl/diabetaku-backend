@@ -113,6 +113,10 @@ class AdminWebController extends Controller
         $totalUsers = DB::table('users')->count();
         $totalPatients = DB::table('patients')->count();
         $totalDoctors = DB::table('doctors')->count();
+        $totalCaregivers = DB::table('caregivers')->count();
+        $activeUsers = DB::table('users')
+            ->where('account_status', 'Aktif')
+            ->count();
 
         $pendingDoctors = DB::table('doctors')
             ->where('verification_status', 'Menunggu')
@@ -142,6 +146,8 @@ class AdminWebController extends Controller
             'totalDoctors',
             'pendingDoctors',
             'verifiedDoctors',
+            'totalCaregivers',
+            'activeUsers',
             'latestUsers'
         ));
     }
@@ -180,11 +186,17 @@ class AdminWebController extends Controller
             return back()->with('error', 'Data dokter tidak ditemukan.');
         }
 
-        DB::transaction(function () use ($doctor) {
+        $adminId = DB::table('admins')
+            ->where('user_id', session('admin_id'))
+            ->value('admin_id');
+
+        DB::transaction(function () use ($doctor, $adminId) {
             DB::table('doctors')
                 ->where('doctor_id', $doctor->doctor_id)
                 ->update([
                     'verification_status' => 'Disetujui',
+                    'verified_by_admin_id' => $adminId,
+                    'verified_at' => now(),
                     'updated_at' => now(),
                 ]);
 
@@ -201,7 +213,7 @@ class AdminWebController extends Controller
             ->with('success', 'Dokter berhasil diverifikasi.');
     }
 
-    public function rejectDoctor($doctorId)
+    public function rejectDoctor(Request $request, $doctorId)
     {
         $doctor = DB::table('doctors')
             ->where('doctor_id', $doctorId)
@@ -211,11 +223,17 @@ class AdminWebController extends Controller
             return back()->with('error', 'Data dokter tidak ditemukan.');
         }
 
-        DB::transaction(function () use ($doctor) {
+        $adminId = DB::table('admins')
+            ->where('user_id', session('admin_id'))
+            ->value('admin_id');
+
+        DB::transaction(function () use ($doctor, $adminId) {
             DB::table('doctors')
                 ->where('doctor_id', $doctor->doctor_id)
                 ->update([
                     'verification_status' => 'Ditolak',
+                    'verified_by_admin_id' => $adminId,
+                    'verified_at' => now(),
                     'updated_at' => now(),
                 ]);
 
@@ -232,9 +250,42 @@ class AdminWebController extends Controller
             ->with('success', 'Dokter berhasil ditolak.');
     }
 
-    public function users()
+    public function resetDoctorVerification($doctorId)
     {
-        $users = DB::table('users as u')
+        $doctor = DB::table('doctors')
+            ->where('doctor_id', $doctorId)
+            ->first();
+
+        if (!$doctor) {
+            return back()->with('error', 'Data dokter tidak ditemukan.');
+        }
+
+        DB::transaction(function () use ($doctor) {
+            DB::table('doctors')
+                ->where('doctor_id', $doctor->doctor_id)
+                ->update([
+                    'verification_status' => 'Menunggu',
+                    'verified_by_admin_id' => null,
+                    'verified_at' => null,
+                    'updated_at' => now(),
+                ]);
+
+            DB::table('users')
+                ->where('user_id', $doctor->user_id)
+                ->update([
+                    'account_status' => 'Menunggu Verifikasi',
+                    'updated_at' => now(),
+                ]);
+        });
+
+        return redirect()
+            ->route('admin.web.users.index')
+            ->with('success', 'Pengajuan dokter berhasil direset ke status menunggu verifikasi.');
+    }
+
+    public function users(Request $request)
+    {
+        $query = DB::table('users as u')
             ->leftJoin('roles as r', 'u.role_id', '=', 'r.role_id')
             ->leftJoin('doctors as d', 'u.user_id', '=', 'd.user_id')
             ->select(
@@ -246,13 +297,38 @@ class AdminWebController extends Controller
                 'u.account_status',
                 'u.email_verified_at',
                 'r.role_name',
+                'd.doctor_id',
                 'd.verification_status as doctor_verification_status',
                 'u.created_at'
-            )
+            );
+
+        if ($request->filled('q')) {
+            $keyword = trim($request->q);
+            $query->where(function ($q) use ($keyword) {
+                $q->where('u.full_name', 'ILIKE', "%{$keyword}%")
+                    ->orWhere('u.email', 'ILIKE', "%{$keyword}%")
+                    ->orWhere('u.phone_number', 'ILIKE', "%{$keyword}%");
+            });
+        }
+
+        if ($request->filled('role')) {
+            $query->where('u.role_id', $request->role);
+        }
+
+        if ($request->filled('status')) {
+            $query->where('u.account_status', $request->status);
+        }
+
+        $users = $query
             ->orderByDesc('u.created_at')
+            ->paginate(12)
+            ->withQueryString();
+
+        $roles = DB::table('roles')
+            ->orderBy('role_id')
             ->get();
 
-        return view('admin.users.index', compact('users'));
+        return view('admin.users.index', compact('users', 'roles'));
     }
 
     public function updateUserStatus(Request $request, $userId)

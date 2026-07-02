@@ -19,6 +19,5 @@ class Doctor extends Model
         'verification_status',
         'verified_by_admin_id',
         'verified_at',
-        'rejection_reason',
     ];
 }

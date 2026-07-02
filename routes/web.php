@@ -43,6 +43,9 @@ Route::prefix('admin')->group(function () {
         Route::post('/doctors/{doctorId}/reject', [AdminWebController::class, 'rejectDoctor'])
             ->name('doctors.reject');
 
+        Route::post('/doctors/{doctorId}/reset-verification', [AdminWebController::class, 'resetDoctorVerification'])
+            ->name('doctors.reset-verification');
+
         Route::get('/users', [AdminWebController::class, 'users'])
             ->name('users.index');
 

@@ -1,14 +1,18 @@
 @extends('admin.layouts.app')
 
-@section('title', 'Master Data')
+@section('title', 'Data Master')
+@section('subtitle', 'Kelola data referensi yang digunakan oleh fitur aplikasi diabetAku.')
 
 @section('content')
-    <div class="card" style="margin-bottom:18px;">
-        <h3 style="margin-top:0; color: var(--primary);">
-            Master Data
-        </h3>
+    <div class="card">
+        <div class="card-header">
+            <div>
+                <h3 class="card-title">Kategori Master Data</h3>
+                <p class="card-desc">Pilih kategori data master yang ingin ditambah atau diperbarui.</p>
+            </div>
+        </div>
 
-        <div style="display:flex; flex-wrap:wrap; gap:8px;">
+        <div class="menu-pills">
             @foreach($masterMenus as $key => $menu)
                 <a href="{{ route('admin.web.master.index', $key) }}"
                     class="btn {{ $type === $key ? 'btn-primary' : 'btn-outline' }}">
@@ -18,26 +22,35 @@
         </div>
     </div>
 
-    <div class="card" style="margin-bottom:18px;">
-        <h3 style="margin-top:0; color: var(--primary);">
-            Tambah {{ $config['title'] }}
-        </h3>
+    <div class="card">
+        <div class="card-header">
+            <div>
+                <h3 class="card-title">Tambah {{ $config['title'] }}</h3>
+                <p class="card-desc">Isi data baru, lalu simpan agar dapat digunakan pada aplikasi.</p>
+            </div>
+        </div>
 
         <form method="POST" action="{{ route('admin.web.master.store', $type) }}">
             @csrf
 
-            <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:14px;">
+            <div class="form-grid">
                 @foreach($config['fields'] as $field => $label)
-                    <div>
-                        <label style="display:block; margin-bottom:6px; color:var(--gray); font-size:13px;">
-                            {{ $label }}
-                        </label>
+                    <div class="form-group">
+                        <label for="create_{{ $field }}">{{ $label }}</label>
 
-                        <input
-                            type="{{ str_contains($field, 'time') ? 'time' : 'text' }}"
-                            name="{{ $field }}"
-                            value="{{ old($field) }}"
-                            style="width:100%; padding:11px; border:1px solid var(--light); border-radius:8px;">
+                        @if($field === 'description')
+                            <textarea id="create_{{ $field }}" name="{{ $field }}" class="form-control" rows="3"
+                                placeholder="Masukkan {{ strtolower($label) }}">{{ old($field) }}</textarea>
+                        @else
+                            <input
+                                id="create_{{ $field }}"
+                                type="{{ str_contains($field, 'time') ? 'time' : (str_contains($field, 'min') || str_contains($field, 'max') || $field === 'value' ? 'number' : 'text') }}"
+                                step="{{ str_contains($field, 'min') || str_contains($field, 'max') || $field === 'value' ? '0.01' : '' }}"
+                                name="{{ $field }}"
+                                value="{{ old($field) }}"
+                                class="form-control"
+                                placeholder="Masukkan {{ strtolower($label) }}">
+                        @endif
                     </div>
                 @endforeach
             </div>
@@ -49,9 +62,13 @@
     </div>
 
     <div class="card">
-        <h3 style="margin-top:0; color: var(--primary);">
-            Daftar {{ $config['title'] }}
-        </h3>
+        <div class="card-header">
+            <div>
+                <h3 class="card-title">Daftar {{ $config['title'] }}</h3>
+                <p class="card-desc">Data yang sudah tersimpan dapat diperbarui langsung pada tabel.</p>
+            </div>
+            <span class="badge badge-blue">{{ $items->count() }} data</span>
+        </div>
 
         <div class="table-responsive">
             <table>
@@ -75,35 +92,38 @@
                         @endphp
 
                         <tr>
-                            <form method="POST"
-                                action="{{ route('admin.web.master.update', [$type, $itemId]) }}">
+                            <form method="POST" action="{{ route('admin.web.master.update', [$type, $itemId]) }}">
                                 @csrf
 
-                                <td>{{ $itemId }}</td>
+                                <td><span class="badge badge-blue">#{{ $itemId }}</span></td>
 
                                 @foreach($config['fields'] as $field => $label)
                                     @php
                                         $value = data_get($item, $field, '');
                                     @endphp
 
-                                    <td>
-                                        <input
-                                            type="{{ str_contains($field, 'time') ? 'time' : 'text' }}"
-                                            name="{{ $field }}"
-                                            value="{{ old($field, $value) }}"
-                                            style="width:100%; padding:8px; border:1px solid var(--light); border-radius:8px;">
+                                    <td style="min-width:170px;">
+                                        @if($field === 'description')
+                                            <textarea name="{{ $field }}" class="form-control" rows="2">{{ old($field, $value) }}</textarea>
+                                        @else
+                                            <input
+                                                type="{{ str_contains($field, 'time') ? 'time' : (str_contains($field, 'min') || str_contains($field, 'max') || $field === 'value' ? 'number' : 'text') }}"
+                                                step="{{ str_contains($field, 'min') || str_contains($field, 'max') || $field === 'value' ? '0.01' : '' }}"
+                                                name="{{ $field }}"
+                                                value="{{ old($field, $value) }}"
+                                                class="form-control">
+                                        @endif
                                     </td>
                                 @endforeach
 
                                 <td style="white-space:nowrap;">
-                                    <button type="submit" class="btn btn-primary">
-                                        Simpan
-                                    </button>
+                                    <div class="action-row">
+                                        <button type="submit" class="btn btn-primary">
+                                            Simpan
+                                        </button>
                             </form>
 
-                            <form method="POST"
-                                action="{{ route('admin.web.master.delete', [$type, $itemId]) }}"
-                                style="display:inline;"
+                            <form method="POST" action="{{ route('admin.web.master.delete', [$type, $itemId]) }}"
                                 onsubmit="return confirm('Yakin ingin menghapus data ini?')">
                                 @csrf
 
@@ -111,12 +131,16 @@
                                     Hapus
                                 </button>
                             </form>
+                                    </div>
                                 </td>
                         </tr>
                     @empty
                         <tr>
                             <td colspan="{{ count($config['fields']) + 2 }}">
-                                Belum ada data.
+                                <div class="empty-state">
+                                    <strong>Belum ada data.</strong>
+                                    Tambahkan data baru melalui form di atas.
+                                </div>
                             </td>
                         </tr>
                     @endforelse

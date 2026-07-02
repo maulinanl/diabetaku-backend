@@ -5,6 +5,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login Admin diabetAku</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
     <style>
         :root {
@@ -21,13 +24,13 @@
 
         * {
             box-sizing: border-box;
-            font-family: Arial, sans-serif;
+            font-family: 'Plus Jakarta Sans', Arial, sans-serif;
         }
 
         body {
             margin: 0;
             min-height: 100vh;
-            background: var(--bg);
+            background: radial-gradient(circle at top left, #EAF4FF 0, #F8FBFF 34%, #F8FBFF 100%);
             color: var(--dark);
         }
 
@@ -41,8 +44,8 @@
         .left-panel {
             position: relative;
             background: var(--primary);
-            border-top-right-radius: 95px;
-            border-bottom-right-radius: 95px;
+            border-top-right-radius: 86px;
+            border-bottom-right-radius: 86px;
             overflow: hidden;
 
             display: flex;
@@ -106,8 +109,8 @@
             max-width: 500px;
             background: rgba(255, 255, 255, .92);
             padding: 42px 38px;
-            border-radius: 32px;
-            box-shadow: 0 18px 46px rgba(58, 141, 222, .16);
+            border-radius: 28px;
+            box-shadow: 0 22px 56px rgba(58, 141, 222, .16);
             border: 1px solid rgba(58, 141, 222, .12);
         }
 
@@ -170,10 +173,10 @@
 
         input {
             width: 100%;
-            height: 48px;
+            height: 50px;
             padding: 0 14px 0 48px;
             border: 1.5px solid rgba(58, 141, 222, .45);
-            border-radius: 13px;
+            border-radius: 14px;
             font-size: 14px;
             outline: none;
             transition: .2s;
@@ -336,7 +339,7 @@
 
                 <div class="left-desc">
                     Sistem untuk memantau pengguna, memverifikasi dokter,
-                    dan mengelola data master diabetAku.
+                    dan mengelola data master aplikasi diabetAku.
                 </div>
             </div>
 
