@@ -11,15 +11,18 @@
 
     <style>
         :root {
-            --primary: #3A8DDE;
-            --primary-dark: #2476C7;
+            --primary: #3A86D1;
+            --primary-dark: #3F73B7;
+            --primary-soft: #EFF6FF;
+            --primary-soft-2: #DCEEFF;
             --bg: #F8FBFF;
             --white: #FFFFFF;
-            --dark: #1F2937;
-            --gray: #6B7280;
-            --light: #DDE7F3;
-            --soft-blue: #EAF4FF;
-            --red: #EF4444;
+            --dark: #3A3A3C;
+            --dark-2: #6B7588;
+            --line: #DDE5E9;
+            --red: #FF3B3B;
+            --red-soft: #FEF2F2;
+            --shadow-soft: 0 18px 46px rgba(58, 134, 209, .14);
         }
 
         * {
@@ -30,7 +33,9 @@
         body {
             margin: 0;
             min-height: 100vh;
-            background: radial-gradient(circle at top left, #EAF4FF 0, #F8FBFF 34%, #F8FBFF 100%);
+            background:
+                radial-gradient(circle at top left, rgba(220, 238, 255, .92) 0, rgba(248, 251, 255, 0) 360px),
+                var(--bg);
             color: var(--dark);
         }
 
@@ -47,24 +52,45 @@
             border-top-right-radius: 86px;
             border-bottom-right-radius: 86px;
             overflow: hidden;
-
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
-
-            padding: 40px;
+            gap: 26px;
+            padding: 42px;
             color: white;
         }
 
+        .left-panel::before {
+            content: "";
+            position: absolute;
+            top: -64px;
+            right: -64px;
+            width: 190px;
+            height: 190px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, .14);
+        }
+
+        .left-panel::after {
+            content: "";
+            position: absolute;
+            bottom: -90px;
+            left: -90px;
+            width: 230px;
+            height: 230px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, .10);
+        }
+
         .left-content {
+            position: relative;
             z-index: 2;
             text-align: center;
-            margin-bottom: 20px;
         }
 
         .brand-logo img {
-            height: 75px;
+            height: 78px;
             object-fit: contain;
         }
 
@@ -76,24 +102,29 @@
         }
 
         .left-title {
-            font-size: 38px;
-            font-weight: 700;
-            margin-bottom: 12px;
+            font-size: 36px;
+            line-height: 1.25;
+            font-weight: 800;
+            margin: 28px 0 12px;
         }
 
         .left-desc {
-            max-width: 420px;
+            max-width: 430px;
             margin: 0 auto;
             font-size: 15px;
             line-height: 1.8;
             opacity: .95;
+            font-weight: 500;
         }
 
         .illustration {
-            width: 95%;
-            max-width: 550px;
+            position: relative;
+            z-index: 2;
+            width: 92%;
+            max-width: 520px;
             height: auto;
             object-fit: contain;
+            filter: drop-shadow(0 18px 34px rgba(0, 0, 0, .10));
         }
 
         .right-panel {
@@ -107,11 +138,12 @@
         .login-card {
             width: 100%;
             max-width: 500px;
-            background: rgba(255, 255, 255, .92);
+            background: rgba(255, 255, 255, .94);
             padding: 42px 38px;
             border-radius: 28px;
-            box-shadow: 0 22px 56px rgba(58, 141, 222, .16);
-            border: 1px solid rgba(58, 141, 222, .12);
+            box-shadow: var(--shadow-soft);
+            border: 1px solid var(--line);
+            backdrop-filter: blur(10px);
         }
 
         .title {
@@ -121,8 +153,9 @@
         .title h1 {
             margin: 0;
             font-size: 32px;
-            line-height: 1.2;
+            line-height: 1.3;
             color: var(--dark);
+            font-weight: 800;
         }
 
         .title h1 span {
@@ -131,18 +164,21 @@
 
         .title p {
             margin: 12px 0 0;
-            color: var(--gray);
+            color: var(--dark-2);
             font-size: 14px;
             line-height: 1.6;
+            font-weight: 500;
         }
 
         .error {
-            background: #FFEAEA;
+            background: var(--red-soft);
             color: var(--red);
             padding: 12px 14px;
-            border-radius: 14px;
+            border-radius: 16px;
             margin-bottom: 18px;
             font-size: 13px;
+            font-weight: 600;
+            border: 1px solid rgba(255, 59, 59, .14);
         }
 
         .form-group {
@@ -152,8 +188,8 @@
         label {
             display: block;
             margin-bottom: 8px;
-            color: var(--primary-dark);
-            font-size: 13px;
+            color: var(--dark-2);
+            font-size: 14px;
             font-weight: 700;
         }
 
@@ -173,14 +209,14 @@
 
         input {
             width: 100%;
-            height: 50px;
+            height: 52px;
             padding: 0 14px 0 48px;
-            border: 1.5px solid rgba(58, 141, 222, .45);
+            border: 1px solid var(--line);
             border-radius: 14px;
             font-size: 14px;
             outline: none;
-            transition: .2s;
-            background: #F8FBFF;
+            transition: .18s ease;
+            background: white;
             color: var(--dark);
         }
 
@@ -190,7 +226,7 @@
 
         input:focus {
             border-color: var(--primary);
-            box-shadow: 0 0 0 4px rgba(58, 141, 222, .12);
+            box-shadow: 0 0 0 4px rgba(58, 134, 209, .10);
             background: var(--white);
         }
 
@@ -207,7 +243,7 @@
             background: transparent;
             color: var(--primary);
             font-size: 12px;
-            font-weight: 700;
+            font-weight: 800;
             cursor: pointer;
             padding: 4px;
         }
@@ -217,8 +253,9 @@
             align-items: center;
             gap: 9px;
             margin: 4px 0 24px;
-            color: var(--dark);
+            color: var(--dark-2);
             font-size: 13px;
+            font-weight: 500;
         }
 
         .remember-row input {
@@ -231,19 +268,21 @@
 
         .login-button {
             width: 100%;
-            height: 50px;
+            height: 52px;
             background: var(--primary);
             color: white;
             border: none;
             border-radius: 14px;
             cursor: pointer;
-            font-weight: 700;
+            font-weight: 800;
             font-size: 15px;
-            transition: .2s;
+            transition: .18s ease;
+            box-shadow: 0 12px 24px rgba(58, 134, 209, .22);
         }
 
         .login-button:hover {
             background: var(--primary-dark);
+            transform: translateY(-1px);
         }
 
         .login-button:disabled {
@@ -253,20 +292,22 @@
 
         .info {
             margin-top: 20px;
-            padding: 13px;
-            border-radius: 14px;
-            background: var(--soft-blue);
-            color: var(--gray);
+            padding: 14px;
+            border-radius: 16px;
+            background: var(--primary-soft);
+            color: var(--dark-2);
             font-size: 12px;
             text-align: center;
             line-height: 1.5;
+            font-weight: 500;
         }
 
         .copyright {
             position: absolute;
             bottom: 24px;
-            color: var(--gray);
+            color: var(--dark-2);
             font-size: 12px;
+            font-weight: 500;
         }
 
         @media (max-width: 900px) {
@@ -283,11 +324,16 @@
             .brand-logo {
                 display: flex;
                 justify-content: center;
-                margin-bottom: 18px;
+                margin-bottom: 10px;
+            }
+
+            .brand-logo img {
+                height: 62px;
             }
 
             .left-title {
-                font-size: 22px;
+                font-size: 28px;
+                margin-top: 16px;
             }
 
             .left-desc {
@@ -295,18 +341,16 @@
             }
 
             .illustration {
-                opacity: .55;
-                height: 70%;
+                display: none;
             }
 
             .right-panel {
-                padding: 28px 20px 56px;
+                padding: 28px 18px 70px;
             }
 
             .login-card {
-                max-width: 100%;
-                padding: 30px 24px;
-                border-radius: 26px;
+                padding: 30px 22px;
+                border-radius: 24px;
             }
 
             .title h1 {
@@ -314,10 +358,11 @@
             }
 
             .copyright {
-                bottom: 18px;
+                bottom: 20px;
             }
         }
     </style>
+
 </head>
 
 <body>

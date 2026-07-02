@@ -464,7 +464,9 @@ class NotificationController extends Controller
             );
 
         if ($referenceType === 'recommendation') {
-            $recommendationsQuery->where('r.recommendation_id', $referenceId);
+            // Notifikasi rekomendasi dokter dibuat memakai clinical_note_id sebagai reference_id.
+            // Fallback ke recommendation_id tetap dipertahankan untuk notifikasi lama.
+            $recommendationsQuery->where('r.clinical_note_id', $referenceId);
         } else {
             $recommendationsQuery->where('r.clinical_note_id', $referenceId);
         }
@@ -472,6 +474,25 @@ class NotificationController extends Controller
         $recommendations = $recommendationsQuery
             ->orderBy('r.recommendation_id')
             ->get();
+
+        if ($recommendations->isEmpty() && $referenceType === 'recommendation') {
+            $recommendations = DB::table('recommendations as r')
+                ->join('clinical_notes as cn', 'r.clinical_note_id', '=', 'cn.clinical_note_id')
+                ->join('doctor_patient_relations as dpr', 'cn.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+                ->join('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
+                ->join('users as du', 'd.user_id', '=', 'du.user_id')
+                ->where('r.recommendation_id', $referenceId)
+                ->select(
+                    'r.recommendation_id',
+                    'r.clinical_note_id',
+                    'r.category',
+                    'r.recommendation_text',
+                    'r.created_at',
+                    'du.full_name as doctor_name'
+                )
+                ->orderBy('r.recommendation_id')
+                ->get();
+        }
 
         if ($recommendations->isEmpty()) {
             return;
