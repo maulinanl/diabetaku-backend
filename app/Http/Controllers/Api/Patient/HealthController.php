@@ -595,6 +595,8 @@ class HealthController extends Controller
         $data = DB::table('recommendations as r')
             ->join('clinical_notes as cn', 'r.clinical_note_id', '=', 'cn.clinical_note_id')
             ->join('doctor_patient_relations as dpr', 'cn.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+            ->join('patients as p', 'dpr.patient_id', '=', 'p.patient_id')
+            ->join('users as pu', 'p.user_id', '=', 'pu.user_id')
             ->join('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
             ->join('users as u', 'd.user_id', '=', 'u.user_id')
             ->where('dpr.patient_id', $patientId)
@@ -604,6 +606,8 @@ class HealthController extends Controller
                 'dpr.patient_id',
                 'dpr.doctor_id',
                 'u.full_name as doctor_name',
+                'pu.full_name as patient_name',
+                'pu.full_name as patient_full_name',
                 'r.category',
                 'r.recommendation_text',
                 'r.created_at'
@@ -622,13 +626,18 @@ class HealthController extends Controller
         $data = DB::table('recommendations as r')
             ->join('clinical_notes as cn', 'r.clinical_note_id', '=', 'cn.clinical_note_id')
             ->join('doctor_patient_relations as dpr', 'cn.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+            ->join('patients as p', 'dpr.patient_id', '=', 'p.patient_id')
+            ->join('users as pu', 'p.user_id', '=', 'pu.user_id')
             ->join('doctors as d', 'dpr.doctor_id', '=', 'd.doctor_id')
             ->join('users as u', 'd.user_id', '=', 'u.user_id')
             ->where('dpr.patient_id', $patientId)
             ->select(
                 'r.recommendation_id',
                 'r.clinical_note_id',
+                'dpr.patient_id',
                 'u.full_name as doctor_name',
+                'pu.full_name as patient_name',
+                'pu.full_name as patient_full_name',
                 'r.category',
                 'r.recommendation_text',
                 'r.created_at'
