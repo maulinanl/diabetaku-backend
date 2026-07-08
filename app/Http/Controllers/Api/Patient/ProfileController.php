@@ -22,6 +22,8 @@ class ProfileController extends Controller
                 'u.email',
                 'u.email_verified_at',
                 'u.phone_number',
+                'u.created_at as registered_at',
+                'p.created_at as patient_created_at',
                 'p.date_of_birth',
                 'u.gender',
                 'p.diabetes_type',

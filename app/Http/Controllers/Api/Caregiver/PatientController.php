@@ -207,6 +207,8 @@ class PatientController extends Controller
                 'u.full_name',
                 'u.email',
                 'u.phone_number',
+                'u.created_at as registered_at',
+                'p.created_at as patient_created_at',
                 'p.diabetes_type',
                 'rt.relation_name',
                 'fpr.status',
@@ -232,6 +234,8 @@ class PatientController extends Controller
                 'u.email',
                 'u.phone_number',
                 'u.gender',
+                'u.created_at as registered_at',
+                'p.created_at as patient_created_at',
                 'p.date_of_birth'
             )
             ->first();
