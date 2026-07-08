@@ -378,7 +378,14 @@ class HealthController extends Controller
                 $query->where('p.prescription_id', $request->prescription_id);
             })
             ->where('dpr.patient_id', $request->patient_id)
-            ->where('dpr.status', 'Diterima')
+            ->where(function ($query) use ($request) {
+                $query->where('dpr.status', 'Diterima')
+                    ->orWhere(function ($subQuery) use ($request) {
+                        $subQuery->where('dpr.status', 'Diputus')
+                            ->whereNotNull('p.end_date')
+                            ->whereDate('p.end_date', '>=', $request->log_date);
+                    });
+            })
             ->where('p.status_prescription', 'Aktif')
             ->where('ms.is_active', true)
             ->where(function ($query) use ($request) {
@@ -455,7 +462,14 @@ class HealthController extends Controller
                     ->whereDate('l.log_date', '=', $today);
             })
             ->where('dpr.patient_id', $patientId)
-            ->where('dpr.status', 'Diterima')
+            ->where(function ($query) use ($today) {
+                $query->where('dpr.status', 'Diterima')
+                    ->orWhere(function ($subQuery) use ($today) {
+                        $subQuery->where('dpr.status', 'Diputus')
+                            ->whereNotNull('p.end_date')
+                            ->whereDate('p.end_date', '>=', $today);
+                    });
+            })
             ->where('p.status_prescription', 'Aktif')
             ->where('ms.is_active', true)
             ->where(function ($query) use ($today) {

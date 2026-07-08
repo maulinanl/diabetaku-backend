@@ -40,8 +40,20 @@ class PrescriptionController extends Controller
         $dosage = trim((string) $dosage);
         $form = trim((string) $form);
 
-        if ($dosage !== '') {
-            return $form !== '' ? trim($dosage . ' ' . $form) : $dosage;
+        if ($dosage === '') {
+            return $form !== '' ? $form : null;
+        }
+
+        // Input dokter biasanya berupa "500 mg" / "500mg".
+        // Angkanya disimpan di kolom quantity, sedangkan unitnya cukup "mg".
+        // Jangan gabungkan ulang menjadi "500mg Tablet" karena nanti tampil dobel:
+        // "500.00 500mg Tablet".
+        $unit = preg_replace('/^[\s\d\.,]+/u', '', $dosage);
+        $unit = trim((string) $unit);
+        $unit = preg_replace('/\s+/u', ' ', $unit);
+
+        if ($unit !== '') {
+            return $unit;
         }
 
         return $form !== '' ? $form : null;
@@ -310,8 +322,8 @@ class PrescriptionController extends Controller
             'indication' => 'nullable|string',
             'meal_rule' => ['nullable', 'string', 'max:100', $this->mealRuleRule()],
             'notes' => 'nullable|string',
-            'start_date' => 'required|date',
-            'end_date' => 'required|date|after_or_equal:start_date',
+            'start_date' => 'nullable|date',
+            'end_date' => 'nullable|date|after_or_equal:start_date',
             'schedules' => 'required|array|min:1',
             'schedules.*.session_id' => 'required|exists:medication_sessions,session_id',
         ]);
@@ -389,8 +401,8 @@ class PrescriptionController extends Controller
             'indication' => 'nullable|string',
             'meal_rule' => ['nullable', 'string', 'max:100', $this->mealRuleRule()],
             'notes' => 'nullable|string',
-            'start_date' => 'required|date',
-            'end_date' => 'required|date|after_or_equal:start_date',
+            'start_date' => 'nullable|date',
+            'end_date' => 'nullable|date|after_or_equal:start_date',
             'schedules' => 'required|array|min:1',
             'schedules.*.session_id' => 'required|exists:medication_sessions,session_id',
         ]);

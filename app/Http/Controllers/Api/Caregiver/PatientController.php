@@ -467,8 +467,19 @@ class PatientController extends Controller
                     ->whereDate('l.log_date', '=', $today);
             })
             ->where('dpr.patient_id', $patientId)
+            ->where(function ($query) use ($today) {
+                $query->where('dpr.status', 'Diterima')
+                    ->orWhere(function ($subQuery) use ($today) {
+                        $subQuery->where('dpr.status', 'Diputus')
+                            ->whereNotNull('p.end_date')
+                            ->whereDate('p.end_date', '>=', $today);
+                    });
+            })
             ->where('p.status_prescription', 'Aktif')
-            ->whereDate('p.start_date', '<=', $today)
+            ->where(function ($query) use ($today) {
+                $query->whereNull('p.start_date')
+                    ->orWhereDate('p.start_date', '<=', $today);
+            })
             ->where(function ($query) use ($today) {
                 $query->whereNull('p.end_date')
                     ->orWhereDate('p.end_date', '>=', $today);

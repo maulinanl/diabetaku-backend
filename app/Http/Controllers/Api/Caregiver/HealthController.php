@@ -325,9 +325,28 @@ class HealthController extends Controller
         $schedule = DB::table('prescription_schedules as ps')
             ->join('prescriptions as p', 'ps.prescription_id', '=', 'p.prescription_id')
             ->join('doctor_patient_relations as dpr', 'p.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
+            ->join('medication_sessions as ms', 'ps.session_id', '=', 'ms.session_id')
             ->where('ps.prescription_schedule_id', $scheduleId)
             ->where('p.prescription_id', $request->prescription_id)
             ->where('dpr.patient_id', $patientId)
+            ->where(function ($query) use ($request) {
+                $query->where('dpr.status', 'Diterima')
+                    ->orWhere(function ($subQuery) use ($request) {
+                        $subQuery->where('dpr.status', 'Diputus')
+                            ->whereNotNull('p.end_date')
+                            ->whereDate('p.end_date', '>=', $request->log_date);
+                    });
+            })
+            ->where('p.status_prescription', 'Aktif')
+            ->where('ms.is_active', true)
+            ->where(function ($query) use ($request) {
+                $query->whereNull('p.start_date')
+                    ->orWhereDate('p.start_date', '<=', $request->log_date);
+            })
+            ->where(function ($query) use ($request) {
+                $query->whereNull('p.end_date')
+                    ->orWhereDate('p.end_date', '>=', $request->log_date);
+            })
             ->select('ps.prescription_schedule_id')
             ->first();
 

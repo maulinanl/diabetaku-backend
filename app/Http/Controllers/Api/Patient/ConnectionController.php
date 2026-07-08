@@ -86,6 +86,7 @@ class ConnectionController extends Controller
             ->where('dpr.doctor_id', $doctorId)
             ->where('dpr.patient_id', $patientId)
             ->where('p.status_prescription', 'Aktif')
+            ->whereNull('p.end_date')
             ->select('p.prescription_id', 'm.medication_name')
             ->get();
     }
