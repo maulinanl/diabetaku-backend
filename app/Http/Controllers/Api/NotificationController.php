@@ -473,7 +473,6 @@ class NotificationController extends Controller
                 'p.medication_id',
                 DB::raw("TRIM(COALESCE(p.quantity::text, '') || ' ' || COALESCE(p.quantity_unit, '')) as dosage"),
                 'm.dosage_form as form',
-                DB::raw('NULL::text as indication'),
                 'p.meal_rule',
                 'p.notes',
                 'p.status_prescription as status',
@@ -483,7 +482,7 @@ class NotificationController extends Controller
                 'p.created_at as prescription_created_at',
                 'p.updated_at as prescription_updated_at',
                 'm.medication_name',
-                'm.description as medication_description',
+                'm.description',
                 'du.full_name as doctor_name',
                 'pu.full_name as patient_name'
             )
