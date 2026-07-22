@@ -372,7 +372,7 @@
         <section class="left-panel">
             <div class="left-content">
                 <div class="brand-logo">
-                    <img src="{{ asset('assets/images/logo.png') }}" alt="Logo diabetAku"
+                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(public_path('assets/images/logo.png'))) }}" alt="Logo diabetAku"
                         onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
 
                     <h1 class="brand-fallback">diabetAku</h1>
@@ -388,10 +388,7 @@
                 </div>
             </div>
 
-            <img
-                src="{{ asset('assets/images/login-illustration.png') }}"
-                alt="Ilustrasi Login"
-                class="illustration">
+            <img src="data:image/png;base64,{{ base64_encode(file_get_contents(public_path('assets/images/login-illustration.png'))) }}" alt="Ilustrasi Login" class="illustration">
         </section>
 
         <section class="right-panel">
@@ -419,7 +416,7 @@
                     </div>
                 @endif
 
-                <form method="POST" action="/admin/login" id="loginForm">
+                <form method="POST" action="{{ route('admin.login.process') }}" id="loginForm">
                     @csrf
 
                     <div class="form-group">

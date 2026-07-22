@@ -323,7 +323,11 @@ class PrescriptionController extends Controller
             'start_date' => 'nullable|date',
             'end_date' => 'nullable|date|after_or_equal:start_date',
             'schedules' => 'required|array|min:1',
-            'schedules.*.session_id' => 'required|exists:medication_sessions,session_id',
+            'schedules.*.session_id' => [
+                'required',
+                'distinct',
+                'exists:medication_sessions,session_id',
+            ],
         ]);
 
         return DB::transaction(function () use ($request, $patientId) {
@@ -401,7 +405,11 @@ class PrescriptionController extends Controller
             'start_date' => 'nullable|date',
             'end_date' => 'nullable|date|after_or_equal:start_date',
             'schedules' => 'required|array|min:1',
-            'schedules.*.session_id' => 'required|exists:medication_sessions,session_id',
+            'schedules.*.session_id' => [
+                'required',
+                'distinct',
+                'exists:medication_sessions,session_id',
+            ],
         ]);
 
         return DB::transaction(function () use ($request, $prescriptionId) {

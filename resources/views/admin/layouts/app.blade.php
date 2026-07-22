@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>@yield('title', 'Admin diabetAku')</title>
-    <link rel="icon" type="image/png" href="{{ asset('assets/images/logo.png') }}">
+    <link rel="icon" type="image/png" href="data:image/png;base64,{{ base64_encode(file_get_contents(public_path('assets/images/logo.png'))) }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -775,7 +775,7 @@
 
         <header class="topbar">
             <div class="topbar-logo">
-                <img src="{{ asset('assets/images/logo.png') }}" alt="Logo diabetAku"
+                <img src="data:image/png;base64,{{ base64_encode(file_get_contents(public_path('assets/images/logo.png'))) }}" alt="Logo diabetAku"
                     onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
 
                 <div class="topbar-logo-text" style="display: none;">
