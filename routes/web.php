@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Admin\AdminAuthController;
+use App\Http\Controllers\Admin\AdminMasterDataController;
 use App\Http\Controllers\Admin\AdminWebController;
 use App\Http\Controllers\Api\VerifyEmailController;
 
@@ -56,16 +57,19 @@ Route::prefix('admin')->group(function () {
         Route::post('/users/{userId}/status', [AdminWebController::class, 'updateUserStatus'])
             ->name('users.status');
 
-        Route::get('/master/{type?}', [AdminWebController::class, 'masterData'])
+        Route::get('/master/{type?}', [AdminMasterDataController::class,'index'])
             ->name('master.index');
 
-        Route::post('/master/{type}', [AdminWebController::class, 'storeMasterData'])
+        Route::post('/master/{type}', [AdminMasterDataController::class,'store'])
             ->name('master.store');
 
-        Route::post('/master/{type}/{id}', [AdminWebController::class, 'updateMasterData'])
+        Route::get('/master/{type}/{id}/edit', [AdminMasterDataController::class,'edit'])
+            ->name('master.edit');
+
+        Route::post('/master/{type}/{id}', [AdminMasterDataController::class,'update'])
             ->name('master.update');
 
-        Route::post('/master/{type}/{id}/delete', [AdminWebController::class, 'deleteMasterData'])
+        Route::post('/master/{type}/{id}/delete', [AdminMasterDataController::class,'destroy'])
             ->name('master.delete');
 
         Route::post('/users/{userId}/reset-password', [AdminWebController::class, 'resetUserPassword'])
