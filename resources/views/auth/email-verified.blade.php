@@ -186,7 +186,7 @@
     @endphp
 
     <main class="page">
-        <img class="logo" src="{{ asset('assets/images/logo.PNG') }}" alt="DiabetAku">
+        <img class="logo" src="{{ asset('assets/images/logo.png') }}" alt="DiabetAku">
 
         <section class="card">
             <p class="eyebrow">Verifikasi Email</p>

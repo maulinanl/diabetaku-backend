@@ -32,8 +32,7 @@ Route::prefix('auth')->group(function () {
     Route::post('/reset-password', [AuthController::class, 'resetPassword']);
 
     Route::get('/email/verify/{id}/{hash}', VerifyEmailController::class)
-        ->middleware('signed')
-        ->name('verification.verify');
+    	->name('verification.verify');
 
     Route::post('/email/resend', [AuthController::class, 'resendVerificationEmail']);
     Route::post('/email/check', [AuthController::class, 'checkEmailVerification']);

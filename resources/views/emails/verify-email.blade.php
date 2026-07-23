@@ -26,7 +26,7 @@
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; max-width:440px; border-collapse:collapse;">
                     <tr>
                         <td align="center" style="padding:0 0 22px 0;">
-                            <img src="{{ asset('assets/images/logo.png') }}" width="190" alt="DiabetAku" style="display:block; width:190px; max-width:72%; height:auto; border:0; outline:none; text-decoration:none;">
+                            <img src="{{ config('app.url') }}/assets/images/logo.png" width="190" alt="DiabetAku" style="display:block; width:190px; max-width:72%; height:auto; border:0; outline:none; text-decoration:none;">
                         </td>
                     </tr>
 
