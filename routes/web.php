@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Admin\AdminAuthController;
 use App\Http\Controllers\Admin\AdminWebController;
+use App\Http\Controllers\Api\VerifyEmailController;
 
 Route::get('/reset-password', function (Request $request) {
     return view('reset-password', [
@@ -19,6 +20,9 @@ Route::get('/', function () {
 Route::get('/admin', function () {
     return redirect()->route('admin.web.dashboard');
 });
+
+Route::get('/verify-email/{id}/{hash}', VerifyEmailController::class)
+    ->name('verification.verify');
 
 Route::prefix('admin')->group(function () {
     Route::get('/login', [AdminAuthController::class, 'loginPage'])

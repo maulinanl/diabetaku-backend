@@ -95,7 +95,7 @@ class AuthController extends Controller
                 'full_name' => $request->full_name,
                 'phone_number' => $request->phone_number,
                 'gender' => $request->gender,
-                'account_status' => 'Aktif',
+                'account_status' => 'Menunggu Verifikasi',
                 'created_at' => now(),
                 'updated_at' => now(),
             ], 'user_id');
@@ -141,7 +141,7 @@ class AuthController extends Controller
                 'full_name' => $request->full_name,
                 'phone_number' => $request->phone_number,
                 'gender' => $request->gender,
-                'account_status' => 'Aktif',
+                'account_status' => 'Menunggu Verifikasi',
                 'created_at' => now(),
                 'updated_at' => now(),
             ], 'user_id');
