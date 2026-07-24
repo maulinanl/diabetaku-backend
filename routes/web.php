@@ -66,11 +66,14 @@ Route::prefix('admin')->group(function () {
         Route::get('/master/{type}/{id}/edit', [AdminMasterDataController::class,'edit'])
             ->name('master.edit');
 
-        Route::post('/master/{type}/{id}', [AdminMasterDataController::class,'update'])
+        Route::put('/master/{type}/{id}', [AdminMasterDataController::class,'update'])
             ->name('master.update');
 
-        Route::post('/master/{type}/{id}/delete', [AdminMasterDataController::class,'destroy'])
-            ->name('master.delete');
+        Route::delete('/master/{type}/{id}', [AdminMasterDataController::class,'destroy'])
+            ->name('master.destroy');
+
+        Route::patch('/master/{type}/{id}/toggle', [AdminMasterDataController::class, 'toggle'])
+            ->name('master.toggle');
 
         Route::post('/users/{userId}/reset-password', [AdminWebController::class, 'resetUserPassword'])
             ->name('users.reset-password');

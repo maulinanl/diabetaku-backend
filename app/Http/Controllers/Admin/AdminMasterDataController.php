@@ -310,49 +310,30 @@ class AdminMasterDataController extends Controller
         }
     }
 
-    public function update(
-        Request $request,
-        string $type,
-        $id
-    )
+    public function update(Request $request, $type, $id)
     {
         $config = $this->config($type);
 
 
         $request->validate(
-            $this->rules($type,$config,$id),
+            $this->rules($type, $config, $id),
             $this->validationMessages()
         );
 
 
-        try {
-
-            DB::table($config['table'])
-                ->where(
-                    $config['primary_key'],
-                    $id
-                )
-                ->update(
-                    $this->payload($request,$config)
-                );
+        DB::table($config['table'])
+            ->where($config['primary_key'], $id)
+            ->update(
+                $this->payload($request, $config)
+            );
 
 
-            return back()
-                ->with(
-                    'success',
-                    'Data berhasil diperbarui.'
-                );
-
-
-        } catch(QueryException $e){
-
-            return back()
-                ->withInput()
-                ->with(
-                    'error',
-                    'Data gagal diperbarui.'
-                );
-        }
+        return redirect()
+            ->route('admin.web.master.index', $type)
+            ->with(
+                'success',
+                $config['title'].' berhasil diperbarui.'
+            );
     }
 
     public function destroy(
@@ -365,45 +346,49 @@ class AdminMasterDataController extends Controller
 
         try {
 
-            DB::table($config['table'])
-                ->where($config['id'],$id)
-                ->delete();
+            if (isset($config['fields']['is_active'])) {
+                DB::table($config['table'])
+                    ->where($config['primary_key'], $id)
+                    ->update(['is_active' => false]);
 
+                return back()->with(
+                    'success',
+                    'Data berhasil dinonaktifkan karena masih digunakan oleh sistem.'
+                );
+            }
+
+            DB::table($config['table'])
+                ->where($config['primary_key'], $id)
+                ->delete();
 
             return back()->with(
                 'success',
                 'Data berhasil dihapus.'
             );
 
-
         } catch(\Exception $e){
 
             return back()->with(
                 'error',
-                'Data tidak dapat dihapus karena masih digunakan.'
+                'Data tidak dapat dihapus karena masih memiliki relasi dengan data lain.'
             );
 
         }
 
     }
 
-    public function edit(
-        string $type,
-        $id
-    )
+    public function edit($type, $id)
     {
         $config = $this->config($type);
 
 
-        $item = DB::table($config['table'])
-            ->where(
-                $config['primary_key'],
-                $id
-            )
+        $editData = DB::table($config['table'])
+            ->where($config['primary_key'], $id)
             ->first();
 
 
-        abort_if(!$item,404);
+        abort_if(!$editData, 404);
+
 
 
         $items = DB::table($config['table'])
@@ -411,15 +396,17 @@ class AdminMasterDataController extends Controller
             ->get();
 
 
-        return view(
-            'admin.master.index',
-            [
-                'type'=>$type,
-                'config'=>$config,
-                'items'=>$items,
-                'masterMenus'=>$this->masters,
-                'editItem'=>$item
-            ]
-        );
+
+        $masterMenus = $this->masters;
+
+
+
+        return view('admin.master.index', compact(
+            'type',
+            'config',
+            'items',
+            'editData',
+            'masterMenus'
+        ));
     }
 }
