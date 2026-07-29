@@ -8,9 +8,6 @@ use Symfony\Component\HttpFoundation\Response;
 
 class RoleMiddleware
 {
-    /**
-     * Restrict API access by users.role_id.
-     */
     public function handle(Request $request, Closure $next, int ...$roles): Response
     {
         $user = $request->user();

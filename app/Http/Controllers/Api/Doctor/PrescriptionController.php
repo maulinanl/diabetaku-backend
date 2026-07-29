@@ -43,11 +43,7 @@ class PrescriptionController extends Controller
         if ($dosage === '') {
             return $form !== '' ? $form : null;
         }
-
-        // Input dokter biasanya berupa "500 mg" / "500mg".
-        // Angkanya disimpan di kolom quantity, sedangkan unitnya cukup "mg".
-        // Jangan gabungkan ulang menjadi "500mg Tablet" karena nanti tampil dobel:
-        // "500.00 500mg Tablet".
+        
         $unit = preg_replace('/^[\s\d\.,]+/u', '', $dosage);
         $unit = trim((string) $unit);
         $unit = preg_replace('/\s+/u', ' ', $unit);

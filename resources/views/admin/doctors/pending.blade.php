@@ -8,7 +8,8 @@
         <div class="card-header">
             <div>
                 <h3 class="card-title">Daftar Dokter Menunggu Verifikasi</h3>
-                <p class="card-desc">Pastikan data STR, spesialisasi, dan institusi dokter sudah sesuai sebelum disetujui.</p>
+                <p class="card-desc">Pastikan data STR, spesialisasi, dan institusi dokter sudah sesuai sebelum disetujui.
+                </p>
             </div>
             <span class="badge badge-orange">{{ $doctors->count() }} menunggu</span>
         </div>
@@ -34,7 +35,9 @@
                                     <div class="mini-avatar">{{ strtoupper(substr($doctor->full_name ?? 'D', 0, 1)) }}</div>
                                     <div>
                                         <div class="cell-title">{{ $doctor->full_name }}</div>
-                                        <div class="cell-subtitle">Daftar {{ $doctor->created_at ? \Carbon\Carbon::parse($doctor->created_at)->format('d/m/Y') : '-' }}</div>
+                                        <div class="cell-subtitle">Daftar
+                                            {{ $doctor->created_at ? \Carbon\Carbon::parse($doctor->created_at)->format('d/m/Y') : '-' }}
+                                        </div>
                                     </div>
                                 </div>
                             </td>
@@ -54,13 +57,15 @@
                             </td>
                             <td>
                                 <div class="action-row">
-                                    <form action="{{ route('admin.web.doctors.verify', $doctor->doctor_id) }}" method="POST"
+                                    <form action="{{ route('admin.web.doctors.verify', $doctor->doctor_id) }}"
+                                        method="POST"
                                         onsubmit="return confirm('Verifikasi dokter {{ $doctor->full_name }}?')">
                                         @csrf
                                         <button class="btn btn-primary" type="submit">Verifikasi</button>
                                     </form>
 
-                                    <form action="{{ route('admin.web.doctors.reject', $doctor->doctor_id) }}" method="POST"
+                                    <form action="{{ route('admin.web.doctors.reject', $doctor->doctor_id) }}"
+                                        method="POST"
                                         onsubmit="return confirm('Tolak verifikasi dokter {{ $doctor->full_name }}?')">
                                         @csrf
                                         <button class="btn btn-danger" type="submit">Tolak</button>

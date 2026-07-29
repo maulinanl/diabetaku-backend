@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="id">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -110,6 +111,7 @@
         }
     </style>
 </head>
+
 <body>
     <div class="page">
         <div class="card">
@@ -126,22 +128,11 @@
                 <input type="hidden" name="email" value="{{ $email }}">
 
                 <label>Kata Sandi Baru</label>
-                <input
-                    type="password"
-                    name="password"
-                    placeholder="Masukkan kata sandi baru"
-                    required
-                    minlength="8"
-                >
+                <input type="password" name="password" placeholder="Masukkan kata sandi baru" required minlength="8">
 
                 <label>Konfirmasi Kata Sandi</label>
-                <input
-                    type="password"
-                    name="password_confirmation"
-                    placeholder="Konfirmasi kata sandi baru"
-                    required
-                    minlength="8"
-                >
+                <input type="password" name="password_confirmation" placeholder="Konfirmasi kata sandi baru" required
+                    minlength="8">
 
                 <button type="submit">
                     Atur Ulang Kata Sandi
@@ -154,4 +145,5 @@
         </div>
     </div>
 </body>
+
 </html>

@@ -240,67 +240,64 @@ class AdminWebController extends Controller
     }
 
     public function updateUserStatus(Request $request, $userId)
-{
-    $user = DB::table('users as u')
-        ->leftJoin('roles as r', 'u.role_id', '=', 'r.role_id')
-        ->where('u.user_id', $userId)
-        ->select(
-            'u.user_id',
-            'r.role_name'
-        )
-        ->first();
+    {
+        $user = DB::table('users as u')
+            ->leftJoin('roles as r', 'u.role_id', '=', 'r.role_id')
+            ->where('u.user_id', $userId)
+            ->select(
+                'u.user_id',
+                'r.role_name'
+            )
+            ->first();
 
 
-    if (!$user) {
-        return back()->with(
-            'error',
-            'Pengguna tidak ditemukan.'
-        );
-    }
+        if (!$user) {
+            return back()->with(
+                'error',
+                'Pengguna tidak ditemukan.'
+            );
+        }
 
+        if ($user->role_name === 'Dokter') {
 
-    // Dokter tidak boleh mengubah status dari halaman user
-    // karena harus melalui proses verifikasi dokter
-    if ($user->role_name === 'Dokter') {
+            return back()->with(
+                'error',
+                'Status dokter harus melalui proses verifikasi dokter.'
+            );
 
-        return back()->with(
-            'error',
-            'Status dokter harus melalui proses verifikasi dokter.'
-        );
-
-    }
+        }
 
 
 
-    $request->validate([
-        'account_status' => [
-            'required',
-            Rule::in([
-                'Aktif',
-                'Tidak Aktif',
-                'Terkunci'
-            ])
-        ],
-    ]);
-
-
-
-    DB::table('users')
-        ->where('user_id', $userId)
-        ->update([
-            'account_status' => $request->account_status,
-            'updated_at' => now(),
+        $request->validate([
+            'account_status' => [
+                'required',
+                Rule::in([
+                    'Aktif',
+                    'Tidak Aktif',
+                    'Terkunci'
+                ])
+            ],
         ]);
 
 
 
-    return redirect()
-        ->route('admin.web.users.index')
-        ->with(
-            'success',
-            'Status pengguna berhasil diperbarui.'
-        );
-}
+        DB::table('users')
+            ->where('user_id', $userId)
+            ->update([
+                'account_status' => $request->account_status,
+                'updated_at' => now(),
+            ]);
+
+
+
+        return redirect()
+            ->route('admin.web.users.index')
+            ->with(
+                'success',
+                'Status pengguna berhasil diperbarui.'
+            );
+    }
 
     public function sendUserResetPasswordLink($userId)
     {

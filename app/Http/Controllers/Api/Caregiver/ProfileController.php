@@ -41,9 +41,6 @@ class ProfileController extends Controller
 
         $today = now()->toDateString();
 
-        // Jumlah jadwal minum obat hari ini dari seluruh pasien dampingan.
-        // 1 resep dengan 3 sesi minum dihitung sebagai 3 jadwal, karena yang
-        // dipantau pendamping adalah frekuensi pengingat minum obat harian.
         $totalMedicationSchedulesToday = DB::table('caregiver_patient_relations as cpr')
             ->join('doctor_patient_relations as dpr', 'dpr.patient_id', '=', 'cpr.patient_id')
             ->join('prescriptions as p', 'p.doctor_patient_relation_id', '=', 'dpr.doctor_patient_relation_id')
@@ -64,7 +61,6 @@ class ProfileController extends Controller
         $data = (array) $profile;
         $data['total_patients'] = $totalPatients;
         $data['total_medication_schedules_today'] = $totalMedicationSchedulesToday;
-        // Backward-compatible key for older Flutter builds.
         $data['total_medication_checklists'] = $totalMedicationSchedulesToday;
 
         return response()->json([

@@ -149,9 +149,6 @@ class NotificationController extends Controller
         $data->institution = $doctor->institution ?? '-';
         $data->info = trim(($doctor->specialization_name ?? '-') . ' • ' . ($doctor->institution ?? '-'));
 
-        // Untuk notifikasi lama seperti "Koneksi Dokter Diterima", status yang dipakai
-        // untuk tombol detail dokter harus mengikuti relasi TERBARU di database.
-        // Jadi kalau relasi sudah Diputus, halaman detail dokter tidak menampilkan tombol Putus Relasi lagi.
         $patientId = DB::table('patients')
             ->where('user_id', $data->user_id)
             ->value('patient_id');
@@ -539,8 +536,6 @@ class NotificationController extends Controller
             );
 
         if ($referenceType === 'recommendation') {
-            // Notifikasi rekomendasi dokter dibuat memakai clinical_note_id sebagai reference_id.
-            // Fallback ke recommendation_id tetap dipertahankan untuk notifikasi lama.
             $recommendationsQuery->where('r.clinical_note_id', $referenceId);
         } else {
             $recommendationsQuery->where('r.clinical_note_id', $referenceId);
@@ -612,7 +607,6 @@ class NotificationController extends Controller
         ], true)) {
             $this->attachDoctorDetail($data, (int) $data->reference_id);
 
-            // Kalau attachDoctorDetail tidak menemukan relasi terbaru, baru fallback dari reference_type/title/message.
             if (empty($data->status) || $data->status === '-') {
                 $data->status = $this->statusFromReferenceType($referenceType, $data->title, $data->message);
             }
@@ -632,8 +626,6 @@ class NotificationController extends Controller
         ], true)) {
             $this->attachCaregiverDetail($data, (int) $data->reference_id);
 
-            // Untuk permintaan pendamping, status harus mengikuti tabel caregiver_patient_relations.
-            // Jadi setelah pasien klik Terima/Tolak, detail notifikasi ikut berubah.
             if (empty($data->status) || $data->status === '-') {
                 $data->status = $this->statusFromReferenceType($referenceType, $data->title, $data->message);
             }
@@ -654,14 +646,10 @@ class NotificationController extends Controller
                 ->where('user_id', $data->user_id)
                 ->value('caregiver_id');
 
-            // Kalau penerima notifikasi adalah pasien, reference_id berisi caregiver_id.
-            // Detail harus menampilkan data pendamping, bukan data dokter.
             if ($patientIdForUser) {
                 $this->attachCaregiverDetail($data, (int) $data->reference_id);
             }
 
-            // Kalau penerima notifikasi adalah pendamping, reference_id berisi patient_id.
-            // Detail harus menampilkan data pasien.
             if (!$patientIdForUser && $caregiverIdForUser) {
                 $this->attachPatientDetail($data, (int) $data->reference_id);
             }

@@ -7,7 +7,8 @@
     <title>Login Admin diabetAku</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet">
 
     <style>
         :root {
@@ -372,7 +373,8 @@
         <section class="left-panel">
             <div class="left-content">
                 <div class="brand-logo">
-                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(public_path('assets/images/logo.png'))) }}" alt="Logo diabetAku"
+                    <img src="data:image/png;base64,{{ base64_encode(file_get_contents(public_path('assets/images/logo.png'))) }}"
+                        alt="Logo diabetAku"
                         onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
 
                     <h1 class="brand-fallback">diabetAku</h1>
@@ -388,7 +390,8 @@
                 </div>
             </div>
 
-            <img src="data:image/png;base64,{{ base64_encode(file_get_contents(public_path('assets/images/login-illustration.png'))) }}" alt="Ilustrasi Login" class="illustration">
+            <img src="data:image/png;base64,{{ base64_encode(file_get_contents(public_path('assets/images/login-illustration.png'))) }}"
+                alt="Ilustrasi Login" class="illustration">
         </section>
 
         <section class="right-panel">
@@ -404,13 +407,13 @@
                     </p>
                 </div>
 
-                @if(session('error'))
+                @if (session('error'))
                     <div class="error">
                         {{ session('error') }}
                     </div>
                 @endif
 
-                @if($errors->any())
+                @if ($errors->any())
                     <div class="error">
                         {{ $errors->first() }}
                     </div>
@@ -428,14 +431,8 @@
                                 <path d="M4 7l8 6 8-6"></path>
                             </svg>
 
-                            <input
-                                id="email"
-                                type="email"
-                                name="email"
-                                value="{{ old('email') }}"
-                                placeholder="Masukkan email admin"
-                                autocomplete="email"
-                                required>
+                            <input id="email" type="email" name="email" value="{{ old('email') }}"
+                                placeholder="Masukkan email admin" autocomplete="email" required>
                         </div>
                     </div>
 
@@ -448,13 +445,8 @@
                                 <path d="M8 10V7a4 4 0 018 0v3"></path>
                             </svg>
 
-                            <input
-                                id="password"
-                                type="password"
-                                name="password"
-                                placeholder="Masukkan password"
-                                autocomplete="current-password"
-                                required>
+                            <input id="password" type="password" name="password" placeholder="Masukkan password"
+                                autocomplete="current-password" required>
 
                             <button type="button" class="toggle-password" onclick="togglePassword()">
                                 Lihat
@@ -499,13 +491,12 @@
             }
         }
 
-        document.getElementById('loginForm').addEventListener('submit', function () {
+        document.getElementById('loginForm').addEventListener('submit', function() {
             const button = document.getElementById('loginButton');
             button.disabled = true;
             button.textContent = 'Memproses...';
         });
     </script>
-
 </body>
 
 </html>
